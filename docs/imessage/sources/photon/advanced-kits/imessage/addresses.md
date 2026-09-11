@@ -1,0 +1,126 @@
+---
+source_origin: "https://photon.codes/docs/advanced-kits/imessage/addresses"
+source_resolved: "https://photon.codes/docs/advanced-kits/imessage/addresses.md"
+retrieved_at: "2026-09-11T01:18:42.118Z"
+source_sha256: "f748f7d0b45dc9fdb68cb131dbed63a104dec43578bb76799822bcf14a57719b"
+retrieval_format: "official-markdown"
+---
+> ## Documentation Index
+> Fetch the complete documentation index at: https://docs.photon.codes/docs/llms.txt
+> Use this file to discover all available pages before exploring further.
+
+# Addresses
+
+> Check whether an email address or phone number can be used with iMessage
+
+`im.addresses` works with contact addresses before they become chats. An address is a full email address or an E.164 phone number. It is not a chat GUID, a contact display name, or a short code.
+
+Use this namespace when you need to answer one of these questions:
+
+| Need                                                                         | Use                                         |
+| ---------------------------------------------------------------------------- | ------------------------------------------- |
+| Can this email or phone number currently receive iMessage?                   | `im.addresses.isIMessageAvailable(address)` |
+| What address, country, and delivery services does the server have on record? | `im.addresses.get(address)`                 |
+| Is this recipient currently silencing notifications with Focus?              | `im.addresses.isFocusSilenced(address)`     |
+
+`im.addresses` only checks address-level state. After you have a `chat.guid`, send, edit, unsend, reply, and notify through the [messages API](/docs/advanced-kits/imessage/messages).
+
+## Input Format
+
+Every `im.addresses` method accepts the same `address` argument:
+
+| Input                        | Accepted | Example                   |
+| ---------------------------- | -------- | ------------------------- |
+| Full email address           | Yes      | `alice@example.com`       |
+| E.164 phone number           | Yes      | `+15551234567`            |
+| Chat GUID                    | No       | `any;-;alice@example.com` |
+| Display name                 | No       | `Alice`                   |
+| Short code or service number | No       | `12345`                   |
+
+Phone numbers must be E.164: include the country code, start with `+`, and omit spaces, parentheses, and dashes.
+
+## Common Flow
+
+Before you create a new chat, the most common preflight check is iMessage availability:
+
+| Step | Action                      | Method                                      |
+| ---- | --------------------------- | ------------------------------------------- |
+| 1    | Check iMessage availability | `im.addresses.isIMessageAvailable(address)` |
+| 2    | Create or resolve the chat  | `im.chats.create([address])`                |
+| 3    | Send the message            | `im.messages.sendText(chat.guid, text)`     |
+
+```ts theme={null}
+const address = "alice@example.com";
+
+const available = await im.addresses.isIMessageAvailable(address);
+
+if (!available) {
+  throw new Error(`${address} is not available on iMessage`);
+}
+
+const { chat } = await im.chats.create([address]);
+await im.messages.sendText(chat.guid, "Hello");
+```
+
+`isIMessageAvailable(...)` is a check only. It does not create a chat. `im.chats.create(...)` creates or resolves the chat and returns the `chat.guid` used by message APIs.
+
+## Check iMessage Availability
+
+```ts theme={null}
+const available = await im.addresses.isIMessageAvailable("+15551234567");
+```
+
+Returns `boolean`:
+
+| Return value | Meaning                                                                |
+| ------------ | ---------------------------------------------------------------------- |
+| `true`       | Apple currently reports that this address can be reached over iMessage |
+| `false`      | The address is unavailable, or availability could not be confirmed     |
+
+Use this before starting a new conversation when you want to avoid sending iMessage traffic to an address that is clearly unreachable.
+
+<Note>
+  Availability is a live Apple lookup. `true` means it is reasonable to continue creating a chat and sending a message, but it does not guarantee that the later send will succeed. Network conditions, account state, or Apple service state can still change.
+</Note>
+
+## Get Address Details
+
+```ts theme={null}
+const info = await im.addresses.get("alice@example.com");
+console.log(info.address, info.country, info.services);
+```
+
+Returns `MultiServiceAddressInfo`:
+
+| Field      | Type                | Meaning                                                             |
+| ---------- | ------------------- | ------------------------------------------------------------------- |
+| `address`  | `string`            | The server's stored form of the email address or E.164 phone number |
+| `country`  | `string \| null`    | ISO 3166-1 alpha-2 country code, or `null` when unknown             |
+| `services` | `ChatServiceType[]` | Available services: `"iMessage"`, `"SMS"`, `"RCS"`, or `"unknown"`  |
+
+`get(...)` throws `NotFoundError` when the server has no record for the address.
+
+<Note>
+  If you only need to know whether the address can use iMessage, call `isIMessageAvailable(...)`. Use `get(...)` when you need address details such as country or available services.
+</Note>
+
+## Check Focus Status
+
+```ts theme={null}
+const silenced = await im.addresses.isFocusSilenced("alice@example.com");
+```
+
+Returns `boolean`:
+
+| Return value | Meaning                                                            |
+| ------------ | ------------------------------------------------------------------ |
+| `true`       | Notifications from this address may currently be silenced by Focus |
+| `false`      | No Focus silence state was detected                                |
+
+Focus is a live Apple state, not a long-term recipient preference. This method tells you whether the recipient may be silencing notifications right now. To trigger Apple's "Notify Anyway" action after sending, use [`im.messages.notifySilenced(...)`](/docs/advanced-kits/imessage/messages#notify-anyway) with `chat.guid` and `message.guid`.
+
+## Next Steps
+
+1. [Chats](/docs/advanced-kits/imessage/chats) — create a chat from an address and get `chat.guid`
+2. [Messages](/docs/advanced-kits/imessage/messages) — send text, attachments, and replies with `chat.guid`
+3. [Error Handling](/docs/advanced-kits/imessage/error-handling) — handle `NotFoundError`, retries, and structured error context

@@ -1,0 +1,499 @@
+{
+  "schemaVersion": 1,
+  "discoverySource": {
+    "originUrl": "https://photon.codes/docs/llms.txt",
+    "resolvedUrl": "https://photon.codes/docs/llms.txt",
+    "retrievedAt": "2026-09-11T01:18:42.118Z",
+    "sha256": "0e9cff75bdffdb8e625583fdd88ccd7317d027fa3f9a74cbe3cebfa256c0c033",
+    "localMarkdownPath": "docs/imessage/sources/photon/llms.txt.md",
+    "retrievalFormat": "official-index"
+  },
+  "sources": [
+    {
+      "officialPath": "advanced-kits/imessage/addresses",
+      "originUrl": "https://photon.codes/docs/advanced-kits/imessage/addresses",
+      "resolvedUrl": "https://photon.codes/docs/advanced-kits/imessage/addresses.md",
+      "retrievedAt": "2026-09-11T01:18:42.118Z",
+      "sha256": "f748f7d0b45dc9fdb68cb131dbed63a104dec43578bb76799822bcf14a57719b",
+      "localMarkdownPath": "docs/imessage/sources/photon/advanced-kits/imessage/addresses.md",
+      "retrievalFormat": "official-markdown"
+    },
+    {
+      "officialPath": "advanced-kits/imessage/attachments",
+      "originUrl": "https://photon.codes/docs/advanced-kits/imessage/attachments",
+      "resolvedUrl": "https://photon.codes/docs/advanced-kits/imessage/attachments.md",
+      "retrievedAt": "2026-09-11T01:18:42.118Z",
+      "sha256": "cacdf3b51c92d591a64e3d8a61d5fdd15b8ac0bc1dd32a8cf531135d732ab1b2",
+      "localMarkdownPath": "docs/imessage/sources/photon/advanced-kits/imessage/attachments.md",
+      "retrievalFormat": "official-markdown"
+    },
+    {
+      "officialPath": "advanced-kits/imessage/chats",
+      "originUrl": "https://photon.codes/docs/advanced-kits/imessage/chats",
+      "resolvedUrl": "https://photon.codes/docs/advanced-kits/imessage/chats.md",
+      "retrievedAt": "2026-09-11T01:18:42.118Z",
+      "sha256": "6bc31a7e8d4aad09decf805b2bf1c747142d53f2a0d1834bb2ff8ab8ea9c673d",
+      "localMarkdownPath": "docs/imessage/sources/photon/advanced-kits/imessage/chats.md",
+      "retrievalFormat": "official-markdown"
+    },
+    {
+      "officialPath": "advanced-kits/imessage/error-handling",
+      "originUrl": "https://photon.codes/docs/advanced-kits/imessage/error-handling",
+      "resolvedUrl": "https://photon.codes/docs/advanced-kits/imessage/error-handling.md",
+      "retrievedAt": "2026-09-11T01:18:42.118Z",
+      "sha256": "ea68f162fd7ed4d4ea24ff7223754bdc7e8941bb148fc247404d7821f492a3b9",
+      "localMarkdownPath": "docs/imessage/sources/photon/advanced-kits/imessage/error-handling.md",
+      "retrievalFormat": "official-markdown"
+    },
+    {
+      "officialPath": "advanced-kits/imessage/events",
+      "originUrl": "https://photon.codes/docs/advanced-kits/imessage/events",
+      "resolvedUrl": "https://photon.codes/docs/advanced-kits/imessage/events.md",
+      "retrievedAt": "2026-09-11T01:18:42.118Z",
+      "sha256": "ffbfaec5c8146c923a3df23dc84ab0df607a5f78beb4faf5675f2cac17df58f9",
+      "localMarkdownPath": "docs/imessage/sources/photon/advanced-kits/imessage/events.md",
+      "retrievalFormat": "official-markdown"
+    },
+    {
+      "officialPath": "advanced-kits/imessage/getting-started",
+      "originUrl": "https://photon.codes/docs/advanced-kits/imessage/getting-started",
+      "resolvedUrl": "https://photon.codes/docs/advanced-kits/imessage/getting-started.md",
+      "retrievedAt": "2026-09-11T01:18:42.118Z",
+      "sha256": "0ea8284fe707db60c1b43b138afca52241385d7ba7caaca5c8b5193457478277",
+      "localMarkdownPath": "docs/imessage/sources/photon/advanced-kits/imessage/getting-started.md",
+      "retrievalFormat": "official-markdown"
+    },
+    {
+      "officialPath": "advanced-kits/imessage/groups",
+      "originUrl": "https://photon.codes/docs/advanced-kits/imessage/groups",
+      "resolvedUrl": "https://photon.codes/docs/advanced-kits/imessage/groups.md",
+      "retrievedAt": "2026-09-11T01:18:42.118Z",
+      "sha256": "0268d8c399e5767980e5111d449fe40ea6ebfb667e85443a5b2472d1437e88fa",
+      "localMarkdownPath": "docs/imessage/sources/photon/advanced-kits/imessage/groups.md",
+      "retrievalFormat": "official-markdown"
+    },
+    {
+      "officialPath": "advanced-kits/imessage/locations",
+      "originUrl": "https://photon.codes/docs/advanced-kits/imessage/locations",
+      "resolvedUrl": "https://photon.codes/docs/advanced-kits/imessage/locations.md",
+      "retrievedAt": "2026-09-11T01:18:42.118Z",
+      "sha256": "23c8d301dbfc33d705d9ead2d3ba9ffbfddda87588935da1bd1be2b00c1b4d01",
+      "localMarkdownPath": "docs/imessage/sources/photon/advanced-kits/imessage/locations.md",
+      "retrievalFormat": "official-markdown"
+    },
+    {
+      "officialPath": "advanced-kits/imessage/messages",
+      "originUrl": "https://photon.codes/docs/advanced-kits/imessage/messages",
+      "resolvedUrl": "https://photon.codes/docs/advanced-kits/imessage/messages.md",
+      "retrievedAt": "2026-09-11T01:18:42.118Z",
+      "sha256": "37c6564d47a3c9937fa3005a15bc6a6c385f7fc35580992ba62c39d94ae9c497",
+      "localMarkdownPath": "docs/imessage/sources/photon/advanced-kits/imessage/messages.md",
+      "retrievalFormat": "official-markdown"
+    },
+    {
+      "officialPath": "advanced-kits/imessage/polls",
+      "originUrl": "https://photon.codes/docs/advanced-kits/imessage/polls",
+      "resolvedUrl": "https://photon.codes/docs/advanced-kits/imessage/polls.md",
+      "retrievedAt": "2026-09-11T01:18:42.118Z",
+      "sha256": "6170945b2e0f8f36c429085d1e2e01b89830e5304b357c0912b70e723b95c481",
+      "localMarkdownPath": "docs/imessage/sources/photon/advanced-kits/imessage/polls.md",
+      "retrievalFormat": "official-markdown"
+    },
+    {
+      "officialPath": "api-reference/introduction",
+      "originUrl": "https://photon.codes/docs/api-reference/introduction",
+      "resolvedUrl": "https://photon.codes/docs/api-reference/introduction.md",
+      "retrievedAt": "2026-09-11T01:18:42.118Z",
+      "sha256": "231ddc4b38587e33f7ff6f9638dacdcbdfc97231d11fa35ea0c6e8991c1369bc",
+      "localMarkdownPath": "docs/imessage/sources/photon/api-reference/introduction.md",
+      "retrievalFormat": "official-markdown"
+    },
+    {
+      "officialPath": "cli/authentication",
+      "originUrl": "https://photon.codes/docs/cli/authentication",
+      "resolvedUrl": "https://photon.codes/docs/cli/authentication.md",
+      "retrievedAt": "2026-09-11T01:18:42.118Z",
+      "sha256": "7c4b1c73ee9478c4fbca1338648f6ff7a74a748cce7a89b8563e0b1bbf55ce08",
+      "localMarkdownPath": "docs/imessage/sources/photon/cli/authentication.md",
+      "retrievalFormat": "official-markdown"
+    },
+    {
+      "officialPath": "cli/installation",
+      "originUrl": "https://photon.codes/docs/cli/installation",
+      "resolvedUrl": "https://photon.codes/docs/cli/installation.md",
+      "retrievedAt": "2026-09-11T01:18:42.118Z",
+      "sha256": "43297faebaf47e98f31429649c313244b37a5eb3b5e39123e2d34cb7807295ed",
+      "localMarkdownPath": "docs/imessage/sources/photon/cli/installation.md",
+      "retrievalFormat": "official-markdown"
+    },
+    {
+      "officialPath": "cli/projects",
+      "originUrl": "https://photon.codes/docs/cli/projects",
+      "resolvedUrl": "https://photon.codes/docs/cli/projects.md",
+      "retrievedAt": "2026-09-11T01:18:42.118Z",
+      "sha256": "bdf51faeb855600efa5b7c799f0a5276c71d61797fb1d311c50cb1a860835bda",
+      "localMarkdownPath": "docs/imessage/sources/photon/cli/projects.md",
+      "retrievalFormat": "official-markdown"
+    },
+    {
+      "officialPath": "cli/spectrum",
+      "originUrl": "https://photon.codes/docs/cli/spectrum",
+      "resolvedUrl": "https://photon.codes/docs/cli/spectrum.md",
+      "retrievedAt": "2026-09-11T01:18:42.118Z",
+      "sha256": "5af57fd1a7d9271e42768f13c97512c375a3fd4e820ff619a1acc3699f670596",
+      "localMarkdownPath": "docs/imessage/sources/photon/cli/spectrum.md",
+      "retrievalFormat": "official-markdown"
+    },
+    {
+      "officialPath": "spectrum-ts/content",
+      "originUrl": "https://photon.codes/docs/spectrum-ts/content",
+      "resolvedUrl": "https://photon.codes/docs/spectrum-ts/content.md",
+      "retrievedAt": "2026-09-11T01:18:42.118Z",
+      "sha256": "ff7fc65dfecc07fc3e760115262c14b3439b36e2f9fe2a3f109cee9e619bd42d",
+      "localMarkdownPath": "docs/imessage/sources/photon/spectrum-ts/content.md",
+      "retrievalFormat": "official-markdown"
+    },
+    {
+      "officialPath": "spectrum-ts/content/app",
+      "originUrl": "https://photon.codes/docs/spectrum-ts/content/app",
+      "resolvedUrl": "https://photon.codes/docs/spectrum-ts/content/app.md",
+      "retrievedAt": "2026-09-11T01:18:42.118Z",
+      "sha256": "81ae485a85373813cb78b50de592144527a5ddad80c0252e338e8aa01bdb4a11",
+      "localMarkdownPath": "docs/imessage/sources/photon/spectrum-ts/content/app.md",
+      "retrievalFormat": "official-markdown"
+    },
+    {
+      "officialPath": "spectrum-ts/content/attachments",
+      "originUrl": "https://photon.codes/docs/spectrum-ts/content/attachments",
+      "resolvedUrl": "https://photon.codes/docs/spectrum-ts/content/attachments.md",
+      "retrievedAt": "2026-09-11T01:18:42.118Z",
+      "sha256": "c93e553cdf6d9e19ffdbb9fd6fe0c2c485fd418dd6a0422b8da0991230707d64",
+      "localMarkdownPath": "docs/imessage/sources/photon/spectrum-ts/content/attachments.md",
+      "retrievalFormat": "official-markdown"
+    },
+    {
+      "officialPath": "spectrum-ts/content/avatar",
+      "originUrl": "https://photon.codes/docs/spectrum-ts/content/avatar",
+      "resolvedUrl": "https://photon.codes/docs/spectrum-ts/content/avatar.md",
+      "retrievedAt": "2026-09-11T01:18:42.118Z",
+      "sha256": "91b4282d329127036a22b5e5e83981cc905e2f235168d504fdc9dafcdf1cb3a6",
+      "localMarkdownPath": "docs/imessage/sources/photon/spectrum-ts/content/avatar.md",
+      "retrievalFormat": "official-markdown"
+    },
+    {
+      "officialPath": "spectrum-ts/content/composing-content",
+      "originUrl": "https://photon.codes/docs/spectrum-ts/content/composing-content",
+      "resolvedUrl": "https://photon.codes/docs/spectrum-ts/content/composing-content.md",
+      "retrievedAt": "2026-09-11T01:18:42.118Z",
+      "sha256": "590be3805c1b141c6d00b7cac2b62a3ceb0c5a5d66f170f6b7783a217edfb1e4",
+      "localMarkdownPath": "docs/imessage/sources/photon/spectrum-ts/content/composing-content.md",
+      "retrievalFormat": "official-markdown"
+    },
+    {
+      "officialPath": "spectrum-ts/content/contacts",
+      "originUrl": "https://photon.codes/docs/spectrum-ts/content/contacts",
+      "resolvedUrl": "https://photon.codes/docs/spectrum-ts/content/contacts.md",
+      "retrievedAt": "2026-09-11T01:18:42.118Z",
+      "sha256": "8f2a4702d7814328bb1b82d0974ef948b0806b5a1b1cf7756be0ff51f1985472",
+      "localMarkdownPath": "docs/imessage/sources/photon/spectrum-ts/content/contacts.md",
+      "retrievalFormat": "official-markdown"
+    },
+    {
+      "officialPath": "spectrum-ts/content/custom",
+      "originUrl": "https://photon.codes/docs/spectrum-ts/content/custom",
+      "resolvedUrl": "https://photon.codes/docs/spectrum-ts/content/custom.md",
+      "retrievedAt": "2026-09-11T01:18:42.118Z",
+      "sha256": "502ccec12ef61938203a844d6c70855aa31616ba7c5dc94504b4b82d2cfe0cca",
+      "localMarkdownPath": "docs/imessage/sources/photon/spectrum-ts/content/custom.md",
+      "retrievalFormat": "official-markdown"
+    },
+    {
+      "officialPath": "spectrum-ts/content/edits",
+      "originUrl": "https://photon.codes/docs/spectrum-ts/content/edits",
+      "resolvedUrl": "https://photon.codes/docs/spectrum-ts/content/edits.md",
+      "retrievedAt": "2026-09-11T01:18:42.118Z",
+      "sha256": "811ca335bfdecbf29977a2196f1fd5be25d7192bef777aecd0e3ef0e616d7966",
+      "localMarkdownPath": "docs/imessage/sources/photon/spectrum-ts/content/edits.md",
+      "retrievalFormat": "official-markdown"
+    },
+    {
+      "officialPath": "spectrum-ts/content/groups",
+      "originUrl": "https://photon.codes/docs/spectrum-ts/content/groups",
+      "resolvedUrl": "https://photon.codes/docs/spectrum-ts/content/groups.md",
+      "retrievedAt": "2026-09-11T01:18:42.118Z",
+      "sha256": "361727d72ee6d79d6a9d4ebb4e6562a2cb1357eaa3521a7dad2353803c6e88ef",
+      "localMarkdownPath": "docs/imessage/sources/photon/spectrum-ts/content/groups.md",
+      "retrievalFormat": "official-markdown"
+    },
+    {
+      "officialPath": "spectrum-ts/content/markdown",
+      "originUrl": "https://photon.codes/docs/spectrum-ts/content/markdown",
+      "resolvedUrl": "https://photon.codes/docs/spectrum-ts/content/markdown.md",
+      "retrievedAt": "2026-09-11T01:18:42.118Z",
+      "sha256": "fe92e58a7dca8854e63d4b313cde28f03100cb47886346398067a16f5155988f",
+      "localMarkdownPath": "docs/imessage/sources/photon/spectrum-ts/content/markdown.md",
+      "retrievalFormat": "official-markdown"
+    },
+    {
+      "officialPath": "spectrum-ts/content/membership",
+      "originUrl": "https://photon.codes/docs/spectrum-ts/content/membership",
+      "resolvedUrl": "https://photon.codes/docs/spectrum-ts/content/membership.md",
+      "retrievedAt": "2026-09-11T01:18:42.118Z",
+      "sha256": "009d7a2eeede558e61e3120560dec41956159f82c7698f75b269aa22ebf4d53b",
+      "localMarkdownPath": "docs/imessage/sources/photon/spectrum-ts/content/membership.md",
+      "retrievalFormat": "official-markdown"
+    },
+    {
+      "officialPath": "spectrum-ts/content/polls",
+      "originUrl": "https://photon.codes/docs/spectrum-ts/content/polls",
+      "resolvedUrl": "https://photon.codes/docs/spectrum-ts/content/polls.md",
+      "retrievedAt": "2026-09-11T01:18:42.118Z",
+      "sha256": "e57ffa8265660ccbe175e92f46862af905e9129a10be598c0cc851d6643a61b9",
+      "localMarkdownPath": "docs/imessage/sources/photon/spectrum-ts/content/polls.md",
+      "retrievalFormat": "official-markdown"
+    },
+    {
+      "officialPath": "spectrum-ts/content/read",
+      "originUrl": "https://photon.codes/docs/spectrum-ts/content/read",
+      "resolvedUrl": "https://photon.codes/docs/spectrum-ts/content/read.md",
+      "retrievedAt": "2026-09-11T01:18:42.118Z",
+      "sha256": "032820ce8bbd13fb91ada9eeae1ac77489cad067ba9a69c90fa7fbdc6ef16386",
+      "localMarkdownPath": "docs/imessage/sources/photon/spectrum-ts/content/read.md",
+      "retrievalFormat": "official-markdown"
+    },
+    {
+      "officialPath": "spectrum-ts/content/rename",
+      "originUrl": "https://photon.codes/docs/spectrum-ts/content/rename",
+      "resolvedUrl": "https://photon.codes/docs/spectrum-ts/content/rename.md",
+      "retrievedAt": "2026-09-11T01:18:42.118Z",
+      "sha256": "6579aa3b519f1887690e0376b6e6d53b83c4c92c917ebcd5b9b728ff8147047e",
+      "localMarkdownPath": "docs/imessage/sources/photon/spectrum-ts/content/rename.md",
+      "retrievalFormat": "official-markdown"
+    },
+    {
+      "officialPath": "spectrum-ts/content/replies",
+      "originUrl": "https://photon.codes/docs/spectrum-ts/content/replies",
+      "resolvedUrl": "https://photon.codes/docs/spectrum-ts/content/replies.md",
+      "retrievedAt": "2026-09-11T01:18:42.118Z",
+      "sha256": "9b2ff2a24a09f4c18b2f6b4c034762410624a0c5d3bf6e3ba876c743b582d581",
+      "localMarkdownPath": "docs/imessage/sources/photon/spectrum-ts/content/replies.md",
+      "retrievalFormat": "official-markdown"
+    },
+    {
+      "officialPath": "spectrum-ts/content/rich-links",
+      "originUrl": "https://photon.codes/docs/spectrum-ts/content/rich-links",
+      "resolvedUrl": "https://photon.codes/docs/spectrum-ts/content/rich-links.md",
+      "retrievedAt": "2026-09-11T01:18:42.118Z",
+      "sha256": "337325bf6aab25168f6026bd99552b885bd75a7d75de23b0c582872c4945427e",
+      "localMarkdownPath": "docs/imessage/sources/photon/spectrum-ts/content/rich-links.md",
+      "retrievalFormat": "official-markdown"
+    },
+    {
+      "officialPath": "spectrum-ts/content/text",
+      "originUrl": "https://photon.codes/docs/spectrum-ts/content/text",
+      "resolvedUrl": "https://photon.codes/docs/spectrum-ts/content/text.md",
+      "retrievedAt": "2026-09-11T01:18:42.118Z",
+      "sha256": "f0dd86ab78e5e062d3a8cf01fcdb37b4ed6d8bcb2fb505b895959cf3431c00ef",
+      "localMarkdownPath": "docs/imessage/sources/photon/spectrum-ts/content/text.md",
+      "retrievalFormat": "official-markdown"
+    },
+    {
+      "officialPath": "spectrum-ts/content/typing-indicators",
+      "originUrl": "https://photon.codes/docs/spectrum-ts/content/typing-indicators",
+      "resolvedUrl": "https://photon.codes/docs/spectrum-ts/content/typing-indicators.md",
+      "retrievedAt": "2026-09-11T01:18:42.118Z",
+      "sha256": "dd1fb5ecc13ba7efa93eebcbe70087bb2f4f3607838730187969d2770e646e86",
+      "localMarkdownPath": "docs/imessage/sources/photon/spectrum-ts/content/typing-indicators.md",
+      "retrievalFormat": "official-markdown"
+    },
+    {
+      "officialPath": "spectrum-ts/content/unsend",
+      "originUrl": "https://photon.codes/docs/spectrum-ts/content/unsend",
+      "resolvedUrl": "https://photon.codes/docs/spectrum-ts/content/unsend.md",
+      "retrievedAt": "2026-09-11T01:18:42.118Z",
+      "sha256": "33990e586a91cccb6fda6e3ddd21741beba99ba018bc887022f8c07730d01892",
+      "localMarkdownPath": "docs/imessage/sources/photon/spectrum-ts/content/unsend.md",
+      "retrievalFormat": "official-markdown"
+    },
+    {
+      "officialPath": "spectrum-ts/content/voice",
+      "originUrl": "https://photon.codes/docs/spectrum-ts/content/voice",
+      "resolvedUrl": "https://photon.codes/docs/spectrum-ts/content/voice.md",
+      "retrievedAt": "2026-09-11T01:18:42.118Z",
+      "sha256": "2dab42f05b1b55979445127bf82e038843318b63acbc7afb143b7f898c139b6d",
+      "localMarkdownPath": "docs/imessage/sources/photon/spectrum-ts/content/voice.md",
+      "retrievalFormat": "official-markdown"
+    },
+    {
+      "officialPath": "spectrum-ts/custom-events-and-lifecycle",
+      "originUrl": "https://photon.codes/docs/spectrum-ts/custom-events-and-lifecycle",
+      "resolvedUrl": "https://photon.codes/docs/spectrum-ts/custom-events-and-lifecycle.md",
+      "retrievedAt": "2026-09-11T01:18:42.118Z",
+      "sha256": "f00445888cb5944ff77f259b3e781009977d57367d753d586029705e406980c5",
+      "localMarkdownPath": "docs/imessage/sources/photon/spectrum-ts/custom-events-and-lifecycle.md",
+      "retrievalFormat": "official-markdown"
+    },
+    {
+      "officialPath": "spectrum-ts/getting-started",
+      "originUrl": "https://photon.codes/docs/spectrum-ts/getting-started",
+      "resolvedUrl": "https://photon.codes/docs/spectrum-ts/getting-started.md",
+      "retrievedAt": "2026-09-11T01:18:42.118Z",
+      "sha256": "6f8ead1678e917693423a932ad0b00c8c12b88665151f0f936630b0c3c8f3ce4",
+      "localMarkdownPath": "docs/imessage/sources/photon/spectrum-ts/getting-started.md",
+      "retrievalFormat": "official-markdown"
+    },
+    {
+      "officialPath": "spectrum-ts/messages",
+      "originUrl": "https://photon.codes/docs/spectrum-ts/messages",
+      "resolvedUrl": "https://photon.codes/docs/spectrum-ts/messages.md",
+      "retrievedAt": "2026-09-11T01:18:42.118Z",
+      "sha256": "0da88e0f2336f1f0757dc7359dd702ce9fc2d3e586e523871244251f97c7d39b",
+      "localMarkdownPath": "docs/imessage/sources/photon/spectrum-ts/messages.md",
+      "retrievalFormat": "official-markdown"
+    },
+    {
+      "officialPath": "spectrum-ts/platform-narrowing",
+      "originUrl": "https://photon.codes/docs/spectrum-ts/platform-narrowing",
+      "resolvedUrl": "https://photon.codes/docs/spectrum-ts/platform-narrowing.md",
+      "retrievedAt": "2026-09-11T01:18:42.118Z",
+      "sha256": "bf4786f4ecab20832500b0585ceb406281eaf04299f1c6af987cbc980a7d137b",
+      "localMarkdownPath": "docs/imessage/sources/photon/spectrum-ts/platform-narrowing.md",
+      "retrievalFormat": "official-markdown"
+    },
+    {
+      "officialPath": "spectrum-ts/providers/imessage/connection-and-routing",
+      "originUrl": "https://photon.codes/docs/spectrum-ts/providers/imessage/connection-and-routing",
+      "resolvedUrl": "https://photon.codes/docs/spectrum-ts/providers/imessage/connection-and-routing.md",
+      "retrievedAt": "2026-09-11T01:18:42.118Z",
+      "sha256": "566a8ddbd1cf0dccdbcd3695c6e28c3cc4b100d97e606c0ee923ade339f24c47",
+      "localMarkdownPath": "docs/imessage/sources/photon/spectrum-ts/providers/imessage/connection-and-routing.md",
+      "retrievalFormat": "official-markdown"
+    },
+    {
+      "officialPath": "spectrum-ts/providers/imessage/messaging-features",
+      "originUrl": "https://photon.codes/docs/spectrum-ts/providers/imessage/messaging-features",
+      "resolvedUrl": "https://photon.codes/docs/spectrum-ts/providers/imessage/messaging-features.md",
+      "retrievedAt": "2026-09-11T01:18:42.118Z",
+      "sha256": "89bbcb9198006cec8bf8d834351c1fe0b8847437cecd46318b5cc0b564fdabd0",
+      "localMarkdownPath": "docs/imessage/sources/photon/spectrum-ts/providers/imessage/messaging-features.md",
+      "retrievalFormat": "official-markdown"
+    },
+    {
+      "officialPath": "spectrum-ts/providers/imessage/messaging-features/apps",
+      "originUrl": "https://photon.codes/docs/spectrum-ts/providers/imessage/messaging-features/apps",
+      "resolvedUrl": "https://photon.codes/docs/spectrum-ts/providers/imessage/messaging-features/apps.md",
+      "retrievedAt": "2026-09-11T01:18:42.118Z",
+      "sha256": "1ce74795d053c52245d10b3b375e3a2163ff8b30b18dac23fadf3719b82f6c40",
+      "localMarkdownPath": "docs/imessage/sources/photon/spectrum-ts/providers/imessage/messaging-features/apps.md",
+      "retrievalFormat": "official-markdown"
+    },
+    {
+      "officialPath": "spectrum-ts/providers/imessage/messaging-features/chat-backgrounds",
+      "originUrl": "https://photon.codes/docs/spectrum-ts/providers/imessage/messaging-features/chat-backgrounds",
+      "resolvedUrl": "https://photon.codes/docs/spectrum-ts/providers/imessage/messaging-features/chat-backgrounds.md",
+      "retrievedAt": "2026-09-11T01:18:42.118Z",
+      "sha256": "6a0f5a11c3056296632fb501181cbadd762d2ea2579f35d961102086fe988f83",
+      "localMarkdownPath": "docs/imessage/sources/photon/spectrum-ts/providers/imessage/messaging-features/chat-backgrounds.md",
+      "retrievalFormat": "official-markdown"
+    },
+    {
+      "officialPath": "spectrum-ts/providers/imessage/messaging-features/chat-renaming",
+      "originUrl": "https://photon.codes/docs/spectrum-ts/providers/imessage/messaging-features/chat-renaming",
+      "resolvedUrl": "https://photon.codes/docs/spectrum-ts/providers/imessage/messaging-features/chat-renaming.md",
+      "retrievedAt": "2026-09-11T01:18:42.118Z",
+      "sha256": "47e2e1621f87a5c60ec88531f863aac5a510145d6344fd6729efc147fd87960d",
+      "localMarkdownPath": "docs/imessage/sources/photon/spectrum-ts/providers/imessage/messaging-features/chat-renaming.md",
+      "retrievalFormat": "official-markdown"
+    },
+    {
+      "officialPath": "spectrum-ts/providers/imessage/messaging-features/contact-card-sharing",
+      "originUrl": "https://photon.codes/docs/spectrum-ts/providers/imessage/messaging-features/contact-card-sharing",
+      "resolvedUrl": "https://photon.codes/docs/spectrum-ts/providers/imessage/messaging-features/contact-card-sharing.md",
+      "retrievedAt": "2026-09-11T01:18:42.118Z",
+      "sha256": "f96ec1311476f01e4f055f3badb7295d3c9859f56caeb81976b8c23eec6e4f98",
+      "localMarkdownPath": "docs/imessage/sources/photon/spectrum-ts/providers/imessage/messaging-features/contact-card-sharing.md",
+      "retrievalFormat": "official-markdown"
+    },
+    {
+      "officialPath": "spectrum-ts/providers/imessage/messaging-features/fetching-attachments",
+      "originUrl": "https://photon.codes/docs/spectrum-ts/providers/imessage/messaging-features/fetching-attachments",
+      "resolvedUrl": "https://photon.codes/docs/spectrum-ts/providers/imessage/messaging-features/fetching-attachments.md",
+      "retrievedAt": "2026-09-11T01:18:42.118Z",
+      "sha256": "836566e9499f33b3dfb7442b33267a9ebd47b5aa2298260a3320c6d4509bbf5f",
+      "localMarkdownPath": "docs/imessage/sources/photon/spectrum-ts/providers/imessage/messaging-features/fetching-attachments.md",
+      "retrievalFormat": "official-markdown"
+    },
+    {
+      "officialPath": "spectrum-ts/providers/imessage/messaging-features/group-avatars",
+      "originUrl": "https://photon.codes/docs/spectrum-ts/providers/imessage/messaging-features/group-avatars",
+      "resolvedUrl": "https://photon.codes/docs/spectrum-ts/providers/imessage/messaging-features/group-avatars.md",
+      "retrievedAt": "2026-09-11T01:18:42.118Z",
+      "sha256": "70c7bf4ba02b59f3c88bfb47b6301998e8b6d1f2ceb867dbf07dee7d5fe49cf3",
+      "localMarkdownPath": "docs/imessage/sources/photon/spectrum-ts/providers/imessage/messaging-features/group-avatars.md",
+      "retrievalFormat": "official-markdown"
+    },
+    {
+      "officialPath": "spectrum-ts/providers/imessage/messaging-features/group-membership",
+      "originUrl": "https://photon.codes/docs/spectrum-ts/providers/imessage/messaging-features/group-membership",
+      "resolvedUrl": "https://photon.codes/docs/spectrum-ts/providers/imessage/messaging-features/group-membership.md",
+      "retrievedAt": "2026-09-11T01:18:42.118Z",
+      "sha256": "9e046c199c41d25d3192ead799ffbe8b6ca0f3c14aff3e3959731133cb140413",
+      "localMarkdownPath": "docs/imessage/sources/photon/spectrum-ts/providers/imessage/messaging-features/group-membership.md",
+      "retrievalFormat": "official-markdown"
+    },
+    {
+      "officialPath": "spectrum-ts/providers/imessage/messaging-features/inbound-group-events",
+      "originUrl": "https://photon.codes/docs/spectrum-ts/providers/imessage/messaging-features/inbound-group-events",
+      "resolvedUrl": "https://photon.codes/docs/spectrum-ts/providers/imessage/messaging-features/inbound-group-events.md",
+      "retrievedAt": "2026-09-11T01:18:42.118Z",
+      "sha256": "d73dd5727d96a1145458d5a7e417149b24ee05e26899f710983e57aca4f4ce70",
+      "localMarkdownPath": "docs/imessage/sources/photon/spectrum-ts/providers/imessage/messaging-features/inbound-group-events.md",
+      "retrievalFormat": "official-markdown"
+    },
+    {
+      "officialPath": "spectrum-ts/providers/imessage/messaging-features/inbound-read-receipts",
+      "originUrl": "https://photon.codes/docs/spectrum-ts/providers/imessage/messaging-features/inbound-read-receipts",
+      "resolvedUrl": "https://photon.codes/docs/spectrum-ts/providers/imessage/messaging-features/inbound-read-receipts.md",
+      "retrievedAt": "2026-09-11T01:18:42.118Z",
+      "sha256": "85bf1cfd9ecb68c44072ec629c504eafd643f5a0f311290d741022f76ee2824d",
+      "localMarkdownPath": "docs/imessage/sources/photon/spectrum-ts/providers/imessage/messaging-features/inbound-read-receipts.md",
+      "retrievalFormat": "official-markdown"
+    },
+    {
+      "officialPath": "spectrum-ts/providers/imessage/messaging-features/message-effects",
+      "originUrl": "https://photon.codes/docs/spectrum-ts/providers/imessage/messaging-features/message-effects",
+      "resolvedUrl": "https://photon.codes/docs/spectrum-ts/providers/imessage/messaging-features/message-effects.md",
+      "retrievedAt": "2026-09-11T01:18:42.118Z",
+      "sha256": "b6558c95ea9fd52271eefd0362e743aa0d5e53b59ec6b4ef6372c2855acb7aa8",
+      "localMarkdownPath": "docs/imessage/sources/photon/spectrum-ts/providers/imessage/messaging-features/message-effects.md",
+      "retrievalFormat": "official-markdown"
+    },
+    {
+      "officialPath": "spectrum-ts/providers/imessage/messaging-features/message-metadata",
+      "originUrl": "https://photon.codes/docs/spectrum-ts/providers/imessage/messaging-features/message-metadata",
+      "resolvedUrl": "https://photon.codes/docs/spectrum-ts/providers/imessage/messaging-features/message-metadata.md",
+      "retrievedAt": "2026-09-11T01:18:42.118Z",
+      "sha256": "e3c4d5d536853a7a9f463585a53866abcf630735d53b43b347c3b4ded3fd6e0c",
+      "localMarkdownPath": "docs/imessage/sources/photon/spectrum-ts/providers/imessage/messaging-features/message-metadata.md",
+      "retrievalFormat": "official-markdown"
+    },
+    {
+      "officialPath": "spectrum-ts/providers/imessage/messaging-features/tapback-reactions",
+      "originUrl": "https://photon.codes/docs/spectrum-ts/providers/imessage/messaging-features/tapback-reactions",
+      "resolvedUrl": "https://photon.codes/docs/spectrum-ts/providers/imessage/messaging-features/tapback-reactions.md",
+      "retrievedAt": "2026-09-11T01:18:42.118Z",
+      "sha256": "00d7d585eb1820602d3152b1cfb8df3c3a35435f9e439ba61eb79849b24158c8",
+      "localMarkdownPath": "docs/imessage/sources/photon/spectrum-ts/providers/imessage/messaging-features/tapback-reactions.md",
+      "retrievalFormat": "official-markdown"
+    },
+    {
+      "officialPath": "spectrum-ts/spaces-and-users",
+      "originUrl": "https://photon.codes/docs/spectrum-ts/spaces-and-users",
+      "resolvedUrl": "https://photon.codes/docs/spectrum-ts/spaces-and-users.md",
+      "retrievedAt": "2026-09-11T01:18:42.118Z",
+      "sha256": "f69d3567ce5bb75b6db2348c1906ff0e8629941be75c49f64416311693fbe044",
+      "localMarkdownPath": "docs/imessage/sources/photon/spectrum-ts/spaces-and-users.md",
+      "retrievalFormat": "official-markdown"
+    }
+  ]
+}

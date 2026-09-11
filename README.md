@@ -184,6 +184,7 @@ messages, and screenshots for organization identifiers before it pushes. Nothing
 ## Going deeper
 
 - [`docs/getting-started.md`](./docs/getting-started.md) — first run, end to end
+- [`docs/imessage/architecture.md`](./docs/imessage/architecture.md) — planned additive Photon-backed iMessage boundary, source lock, parity inventory, and lane workflow
 - [`cli/README.md`](./cli/README.md) — the `qm` CLI and the deployment directory contract
 - [`docs/deploy-directory.md`](./docs/deploy-directory.md) — the deployment directory in full
 - [`docs/porter.md`](./docs/porter.md) — running qm on Porter

@@ -1,0 +1,381 @@
+{
+  "schemaVersion": 1,
+  "repository": "https://github.com/tecxbro/qm-imessage.git",
+  "workspace": "/Users/darshan/Documents/ChatGPT/qm-imessage",
+  "integration": {
+    "branch": "imessage/integration",
+    "worktree": "worktrees/wt-integration",
+    "baseRef": "qm-imessage-f0"
+  },
+  "reservedForIntegration": [
+    "package.json",
+    "package-lock.json",
+    "README.md",
+    "src/api/server.ts",
+    "src/api/routes/index.ts",
+    "src/api/app-types.ts",
+    "src/api/app-turn.ts",
+    "plugins/web-ui/server/index.ts",
+    "docs/imessage/architecture.md",
+    "docs/imessage/parity.json",
+    "docs/imessage/repository-inventory.json",
+    "docs/imessage/source-lock.json",
+    "docs/imessage/ownership.json",
+    "docs/imessage/workflow.md"
+  ],
+  "lanes": {
+    "wt-00": {
+      "wave": "foundation",
+      "branch": "imessage/foundation",
+      "worktree": "worktrees/wt-00-foundation",
+      "baseRef": "0e3f9b9739f5ac695aa02672860ead64da88105e",
+      "responsibility": "Sources, inventory, parity, architecture, frozen wire contracts, port contracts, fixtures, and lane tooling",
+      "ownedPaths": [
+        ".prettierignore",
+        "README.md",
+        "scripts/imessage-*.mjs",
+        "docs/imessage/**",
+        "plugins/chassis/src/photon-contract.ts",
+        "plugins/photon/**",
+        "plugins/web-ui/src/photon/contracts.ts"
+      ],
+      "requiredDocs": ["docs/imessage/lanes/wt-00.md"],
+      "verify": [
+        "node scripts/imessage-sources.mjs validate",
+        "npm run verify --prefix plugins/photon",
+        "npm run typecheck --prefix plugins/web-ui"
+      ]
+    },
+    "wt-01": {
+      "wave": "A",
+      "branch": "imessage/wt-01",
+      "worktree": "worktrees/wt-01",
+      "baseRef": "qm-imessage-f0",
+      "responsibility": "Durable Photon installation lifecycle and installation storage adapters",
+      "ownedPaths": [
+        "plugins/photon/src/installation/**",
+        "plugins/photon/test/installation/**",
+        "docs/imessage/lanes/wt-01.md"
+      ],
+      "requiredDocs": ["docs/imessage/lanes/wt-01.md"],
+      "verify": ["npm run verify --prefix plugins/photon"]
+    },
+    "wt-02": {
+      "wave": "A",
+      "branch": "imessage/wt-02",
+      "worktree": "worktrees/wt-02",
+      "baseRef": "qm-imessage-f0",
+      "responsibility": "Spectrum ingress, raw-body verification, durable capture, checkpoints, and canonical identity lookup",
+      "ownedPaths": ["plugins/photon/src/ingress/**", "plugins/photon/test/ingress/**", "docs/imessage/lanes/wt-02.md"],
+      "requiredDocs": ["docs/imessage/lanes/wt-02.md"],
+      "verify": ["npm run verify --prefix plugins/photon"]
+    },
+    "wt-03": {
+      "wave": "A",
+      "branch": "imessage/wt-03",
+      "worktree": "worktrees/wt-03",
+      "baseRef": "qm-imessage-f0",
+      "responsibility": "Text, streaming, multipart composition, replies, edits, unsend, and reactions",
+      "ownedPaths": [
+        "plugins/photon/src/features/text/**",
+        "plugins/photon/src/features/message-actions/**",
+        "plugins/photon/test/features/text/**",
+        "docs/imessage/lanes/wt-03.md"
+      ],
+      "requiredDocs": ["docs/imessage/lanes/wt-03.md"],
+      "verify": ["npm run verify --prefix plugins/photon"]
+    },
+    "wt-04": {
+      "wave": "A",
+      "branch": "imessage/wt-04",
+      "worktree": "worktrees/wt-04",
+      "baseRef": "qm-imessage-f0",
+      "responsibility": "Attachment staging, media, voice, rich links, and contacts",
+      "ownedPaths": [
+        "plugins/photon/src/features/media/**",
+        "plugins/photon/test/features/media/**",
+        "docs/imessage/lanes/wt-04.md"
+      ],
+      "requiredDocs": ["docs/imessage/lanes/wt-04.md"],
+      "verify": ["npm run verify --prefix plugins/photon"]
+    },
+    "wt-05": {
+      "wave": "A",
+      "branch": "imessage/wt-05",
+      "worktree": "worktrees/wt-05",
+      "baseRef": "qm-imessage-f0",
+      "responsibility": "Action bindings, approvals, checked QM operations, and competing-action protection",
+      "ownedPaths": ["plugins/photon/src/actions/**", "plugins/photon/test/actions/**", "docs/imessage/lanes/wt-05.md"],
+      "requiredDocs": ["docs/imessage/lanes/wt-05.md"],
+      "verify": ["npm run verify --prefix plugins/photon"]
+    },
+    "wt-06": {
+      "wave": "A",
+      "branch": "imessage/wt-06",
+      "worktree": "worktrees/wt-06",
+      "baseRef": "qm-imessage-f0",
+      "responsibility": "Base presentation dispatcher, capability failures, message bindings, and delivery outcomes",
+      "ownedPaths": [
+        "plugins/photon/src/presentation/**",
+        "plugins/photon/test/presentation/**",
+        "docs/imessage/lanes/wt-06.md"
+      ],
+      "requiredDocs": ["docs/imessage/lanes/wt-06.md"],
+      "verify": ["npm run verify --prefix plugins/photon"]
+    },
+    "wt-07": {
+      "wave": "B",
+      "branch": "imessage/wt-07",
+      "worktree": "worktrees/wt-07",
+      "baseRef": "qm-imessage-f1",
+      "responsibility": "Session and conversation operations",
+      "ownedPaths": [
+        "plugins/photon/src/qm/sessions/**",
+        "plugins/photon/test/qm/sessions/**",
+        "docs/imessage/lanes/wt-07.md"
+      ],
+      "requiredDocs": ["docs/imessage/lanes/wt-07.md"],
+      "verify": ["npm run verify --prefix plugins/photon"]
+    },
+    "wt-08": {
+      "wave": "B",
+      "branch": "imessage/wt-08",
+      "worktree": "worktrees/wt-08",
+      "baseRef": "qm-imessage-f1",
+      "responsibility": "Context and memory representations through existing QM authority",
+      "ownedPaths": [
+        "plugins/photon/src/qm/context-memory/**",
+        "plugins/photon/test/qm/context-memory/**",
+        "docs/imessage/lanes/wt-08.md"
+      ],
+      "requiredDocs": ["docs/imessage/lanes/wt-08.md"],
+      "verify": ["npm run verify --prefix plugins/photon"]
+    },
+    "wt-09": {
+      "wave": "B",
+      "branch": "imessage/wt-09",
+      "worktree": "worktrees/wt-09",
+      "baseRef": "qm-imessage-f1",
+      "responsibility": "Skills, connectors, and keychain representations through existing QM authority",
+      "ownedPaths": [
+        "plugins/photon/src/qm/skills-connectors/**",
+        "plugins/photon/test/qm/skills-connectors/**",
+        "docs/imessage/lanes/wt-09.md"
+      ],
+      "requiredDocs": ["docs/imessage/lanes/wt-09.md"],
+      "verify": ["npm run verify --prefix plugins/photon"]
+    },
+    "wt-10": {
+      "wave": "B",
+      "branch": "imessage/wt-10",
+      "worktree": "worktrees/wt-10",
+      "baseRef": "qm-imessage-f1",
+      "responsibility": "Crons, loops, inbox items, and webhook representations",
+      "ownedPaths": [
+        "plugins/photon/src/qm/automation/**",
+        "plugins/photon/test/qm/automation/**",
+        "docs/imessage/lanes/wt-10.md"
+      ],
+      "requiredDocs": ["docs/imessage/lanes/wt-10.md"],
+      "verify": ["npm run verify --prefix plugins/photon"]
+    },
+    "wt-11": {
+      "wave": "B",
+      "branch": "imessage/wt-11",
+      "worktree": "worktrees/wt-11",
+      "baseRef": "qm-imessage-f1",
+      "responsibility": "Projects, directory, principals, and reach representations",
+      "ownedPaths": [
+        "plugins/photon/src/qm/directory/**",
+        "plugins/photon/test/qm/directory/**",
+        "docs/imessage/lanes/wt-11.md"
+      ],
+      "requiredDocs": ["docs/imessage/lanes/wt-11.md"],
+      "verify": ["npm run verify --prefix plugins/photon"]
+    },
+    "wt-12": {
+      "wave": "B",
+      "branch": "imessage/wt-12",
+      "worktree": "worktrees/wt-12",
+      "baseRef": "qm-imessage-f1",
+      "responsibility": "Deployment representations and protected existing deployment views",
+      "ownedPaths": [
+        "plugins/photon/src/qm/deployments/**",
+        "plugins/photon/test/qm/deployments/**",
+        "docs/imessage/lanes/wt-12.md"
+      ],
+      "requiredDocs": ["docs/imessage/lanes/wt-12.md"],
+      "verify": ["npm run verify --prefix plugins/photon"]
+    },
+    "wt-13": {
+      "wave": "B",
+      "branch": "imessage/wt-13",
+      "worktree": "worktrees/wt-13",
+      "baseRef": "qm-imessage-f1",
+      "responsibility": "Read-only admin and observability view contributions",
+      "ownedPaths": [
+        "plugins/web-ui/src/photon/admin-read/**",
+        "plugins/web-ui/test/photon/admin-read/**",
+        "docs/imessage/lanes/wt-13.md"
+      ],
+      "requiredDocs": ["docs/imessage/lanes/wt-13.md"],
+      "verify": ["npm run typecheck --prefix plugins/web-ui"]
+    },
+    "wt-14": {
+      "wave": "B",
+      "branch": "imessage/wt-14",
+      "worktree": "worktrees/wt-14",
+      "baseRef": "qm-imessage-f1",
+      "responsibility": "Admin mutation contributions with existing authorization",
+      "ownedPaths": [
+        "plugins/web-ui/src/photon/admin-actions/**",
+        "plugins/web-ui/test/photon/admin-actions/**",
+        "docs/imessage/lanes/wt-14.md"
+      ],
+      "requiredDocs": ["docs/imessage/lanes/wt-14.md"],
+      "verify": ["npm run typecheck --prefix plugins/web-ui"]
+    },
+    "wt-15": {
+      "wave": "B",
+      "branch": "imessage/wt-15",
+      "worktree": "worktrees/wt-15",
+      "baseRef": "qm-imessage-f1",
+      "responsibility": "Advanced iMessage client adapter with explicit native methods",
+      "ownedPaths": [
+        "plugins/photon/src/providers/advanced-imessage/**",
+        "plugins/photon/test/providers/advanced-imessage/**",
+        "docs/imessage/lanes/wt-15.md"
+      ],
+      "requiredDocs": ["docs/imessage/lanes/wt-15.md"],
+      "verify": ["npm run verify --prefix plugins/photon"]
+    },
+    "wt-16": {
+      "wave": "C",
+      "branch": "imessage/wt-16",
+      "worktree": "worktrees/wt-16",
+      "baseRef": "qm-imessage-f2",
+      "responsibility": "Delivery and read receipt ingestion and evidence",
+      "ownedPaths": [
+        "plugins/photon/src/features/receipts/**",
+        "plugins/photon/test/features/receipts/**",
+        "docs/imessage/lanes/wt-16.md"
+      ],
+      "requiredDocs": ["docs/imessage/lanes/wt-16.md"],
+      "verify": ["npm run verify --prefix plugins/photon"]
+    },
+    "wt-17": {
+      "wave": "C",
+      "branch": "imessage/wt-17",
+      "worktree": "worktrees/wt-17",
+      "baseRef": "qm-imessage-f2",
+      "responsibility": "Advanced message actions and provider metadata",
+      "ownedPaths": [
+        "plugins/photon/src/features/advanced-actions/**",
+        "plugins/photon/test/features/advanced-actions/**",
+        "docs/imessage/lanes/wt-17.md"
+      ],
+      "requiredDocs": ["docs/imessage/lanes/wt-17.md"],
+      "verify": ["npm run verify --prefix plugins/photon"]
+    },
+    "wt-18": {
+      "wave": "C",
+      "branch": "imessage/wt-18",
+      "worktree": "worktrees/wt-18",
+      "baseRef": "qm-imessage-f2",
+      "responsibility": "Advanced attachments, embedded media, voice, and native contact sharing",
+      "ownedPaths": [
+        "plugins/photon/src/features/advanced-media/**",
+        "plugins/photon/test/features/advanced-media/**",
+        "docs/imessage/lanes/wt-18.md"
+      ],
+      "requiredDocs": ["docs/imessage/lanes/wt-18.md"],
+      "verify": ["npm run verify --prefix plugins/photon"]
+    },
+    "wt-19": {
+      "wave": "C",
+      "branch": "imessage/wt-19",
+      "worktree": "worktrees/wt-19",
+      "baseRef": "qm-imessage-f2",
+      "responsibility": "Native polls and poll event handling",
+      "ownedPaths": [
+        "plugins/photon/src/features/polls/**",
+        "plugins/photon/test/features/polls/**",
+        "docs/imessage/lanes/wt-19.md"
+      ],
+      "requiredDocs": ["docs/imessage/lanes/wt-19.md"],
+      "verify": ["npm run verify --prefix plugins/photon"]
+    },
+    "wt-20": {
+      "wave": "C",
+      "branch": "imessage/wt-20",
+      "worktree": "worktrees/wt-20",
+      "baseRef": "qm-imessage-f2",
+      "responsibility": "iMessage app cards and update sessions",
+      "ownedPaths": [
+        "plugins/photon/src/features/apps/**",
+        "plugins/photon/test/features/apps/**",
+        "docs/imessage/lanes/wt-20.md"
+      ],
+      "requiredDocs": ["docs/imessage/lanes/wt-20.md"],
+      "verify": ["npm run verify --prefix plugins/photon"]
+    },
+    "wt-21": {
+      "wave": "C",
+      "branch": "imessage/wt-21",
+      "worktree": "worktrees/wt-21",
+      "baseRef": "qm-imessage-f2",
+      "responsibility": "Group rename, avatars, membership, background, and group events",
+      "ownedPaths": [
+        "plugins/photon/src/features/groups/**",
+        "plugins/photon/test/features/groups/**",
+        "docs/imessage/lanes/wt-21.md"
+      ],
+      "requiredDocs": ["docs/imessage/lanes/wt-21.md"],
+      "verify": ["npm run verify --prefix plugins/photon"]
+    },
+    "wt-22": {
+      "wave": "C",
+      "branch": "imessage/wt-22",
+      "worktree": "worktrees/wt-22",
+      "baseRef": "qm-imessage-f2",
+      "responsibility": "Authenticated existing-view mounting in the iMessage-oriented host",
+      "ownedPaths": [
+        "plugins/web-ui/src/photon/host/**",
+        "plugins/web-ui/test/photon/host/**",
+        "docs/imessage/lanes/wt-22.md"
+      ],
+      "requiredDocs": ["docs/imessage/lanes/wt-22.md"],
+      "verify": ["npm run typecheck --prefix plugins/web-ui"]
+    },
+    "wt-23": {
+      "wave": "D",
+      "branch": "imessage/wt-23",
+      "worktree": "worktrees/wt-23",
+      "baseRef": "qm-imessage-f3",
+      "responsibility": "Integration wiring through reserved shared registration files",
+      "ownedPaths": ["docs/imessage/lanes/wt-23.md"],
+      "requiredDocs": ["docs/imessage/lanes/wt-23.md"],
+      "verify": ["npm run verify --prefix plugins/photon", "npm run typecheck --prefix plugins/web-ui"]
+    },
+    "wt-24": {
+      "wave": "D",
+      "branch": "imessage/wt-24",
+      "worktree": "worktrees/wt-24",
+      "baseRef": "qm-imessage-f3",
+      "responsibility": "Assembled acceptance, restart, concurrency, and recovery evidence",
+      "ownedPaths": ["test/imessage/**", "plugins/photon/test/acceptance/**", "docs/imessage/lanes/wt-24.md"],
+      "requiredDocs": ["docs/imessage/lanes/wt-24.md"],
+      "verify": ["npm run verify --prefix plugins/photon"]
+    },
+    "wt-25": {
+      "wave": "D",
+      "branch": "imessage/wt-25",
+      "worktree": "worktrees/wt-25",
+      "baseRef": "qm-imessage-f3",
+      "responsibility": "Release gates and protected live provider, delivery, read, interaction, and device evidence",
+      "ownedPaths": ["docs/imessage/lanes/wt-25.md", "docs/imessage/evidence/**"],
+      "requiredDocs": ["docs/imessage/lanes/wt-25.md"],
+      "verify": ["npm run verify --prefix plugins/photon"]
+    }
+  }
+}

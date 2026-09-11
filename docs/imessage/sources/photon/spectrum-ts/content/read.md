@@ -1,0 +1,164 @@
+---
+source_origin: "https://photon.codes/docs/spectrum-ts/content/read"
+source_resolved: "https://photon.codes/docs/spectrum-ts/content/read.md"
+retrieved_at: "2026-09-11T01:18:42.118Z"
+source_sha256: "032820ce8bbd13fb91ada9eeae1ac77489cad067ba9a69c90fa7fbdc6ef16386"
+retrieval_format: "official-markdown"
+---
+> ## Documentation Index
+> Fetch the complete documentation index at: https://docs.photon.codes/docs/llms.txt
+> Use this file to discover all available pages before exploring further.
+
+# Read
+
+> Mark a conversation as read, and observe when a recipient reads what you sent.
+
+export const TypeTooltip = ({name, type, children}) => {
+  const [visible, setVisible] = React.useState(false);
+  const [pos, setPos] = React.useState({
+    top: 0,
+    left: 0
+  });
+  const triggerRef = React.useRef(null);
+  const show = () => {
+    if (triggerRef.current) {
+      const rect = triggerRef.current.getBoundingClientRect();
+      setPos({
+        top: rect.bottom + 6,
+        left: rect.left
+      });
+    }
+    setVisible(true);
+  };
+  const hide = () => setVisible(false);
+  return <>
+      <span ref={triggerRef} onMouseEnter={show} onMouseLeave={hide} style={{
+    cursor: "pointer",
+    position: "relative",
+    display: "inline"
+  }}>
+        {children || <code>{name}</code>}
+      </span>
+      {visible && <span style={{
+    position: "fixed",
+    top: pos.top,
+    left: pos.left,
+    zIndex: 9999,
+    padding: "8px 12px",
+    borderRadius: "8px",
+    fontSize: "13px",
+    lineHeight: "1.5",
+    fontFamily: "'Azeret Mono', monospace",
+    whiteSpace: "pre",
+    backgroundColor: "var(--tw-prose-pre-bg, #1e1e1e)",
+    color: "var(--tw-prose-pre-code, #e5e5e5)",
+    border: "1px solid var(--border, rgba(128,128,128,0.2))",
+    boxShadow: "0 4px 16px rgba(0,0,0,0.3)",
+    pointerEvents: "none"
+  }}>
+          {type}
+        </span>}
+    </>;
+};
+
+Use `read()` to mark a conversation as read up to a message, surfacing a read receipt to the sender where the platform supports one. It is fire-and-forget: `space.send(...)` resolves to `undefined`.
+
+```ts theme={null}
+import { read } from "spectrum-ts";
+
+await space.send(read(message));
+```
+
+`message.read()` and `space.read(message)` are sugar for the canonical form above.
+
+```ts theme={null}
+await message.read();
+await space.read(message);
+```
+
+Only inbound messages can be marked read; passing an outbound message throws at build time, before the send pipeline runs.
+
+Granularity is per-platform:
+
+* **WhatsApp Business** — a per-message receipt, which also marks every earlier message in the conversation as read.
+* **iMessage** (remote) — chat-level: the target only identifies the chat, and **every** unread message in it is marked read. Local mode rejects with an <TypeTooltip name="UnsupportedError" type={`declare class UnsupportedError extends Error {
+  readonly kind: UnsupportedKind;
+  readonly platform?: string;
+  readonly contentType?: string;
+  readonly action?: string;
+  readonly detail?: string;
+  constructor(opts: UnsupportedErrorOptions);
+  static content(contentType: string, platform?: string, detail?: string): UnsupportedError;
+  static action(action: string, platform?: string, detail?: string): UnsupportedError;
+  withPlatform(platform: string): UnsupportedError;
+  }`} />.
+* **Telegram / Slack** — silently no-op. Neither surfaces read state for bot conversations, so the signal is vacuously satisfied — the same best-effort contract as `typing`.
+
+## Inbound read receipts
+
+When a recipient reads a message the agent sent, the same content type arrives as an inbound <TypeTooltip name="Message" type={`interface Message<TPlatform extends string = string, TSender extends User = User, TSpace extends Space = Space> {
+content: Content;
+direction: "inbound" | "outbound";
+edit(newContent: ContentInput): Promise<void>;
+readonly id: string;
+platform: TPlatform;
+react(reaction: string): Promise<(Message<TPlatform, AgentSender, TSpace> & {
+    content: Reaction;
+}) | undefined>;
+read(): Promise<void>;
+reply(content: ContentInput): Promise<Message<TPlatform, AgentSender, TSpace> | undefined>;
+reply(...content: [
+    ContentInput,
+    ContentInput,
+    ...ContentInput[]
+]): Promise<Message<TPlatform, AgentSender, TSpace>[]>;
+sender: TSender | undefined;
+space: TSpace;
+timestamp: Date;
+unsend(): Promise<void>;
+}`} /> on `app.messages`. iMessage (dedicated and shared lines) reports these today.
+
+```ts theme={null}
+for await (const [space, message] of app.messages) {
+  if (message.content.type === "read") {
+    const target = message.content.target; // the message YOU sent
+    console.log(
+      `${message.sender?.id} read "${target.id}" at ${message.timestamp.toISOString()}`
+    );
+  }
+}
+```
+
+The envelope carries the event semantics:
+
+* `message.sender` is the **reader**; `message.content.target` is the message **you** sent. Never the other way round.
+* The target is a fully-built `Message` with `direction: "outbound"`, so `target.content`, `target.edit(...)`, and `target.unsend()` are all available on it.
+* `message.timestamp` is when the reader's device marked it read — not when your process observed the event. The two diverge when a receipt arrives late via Continuity sync.
+* `message.sender` is always present on an inbound read receipt. Receipts the platform could not attribute to a reader are dropped rather than surfaced with an unknown sender, so a "who has read this" tally never counts phantom readers.
+* **Direct messages are the reliable case today.** iMessage does not report the reader's identity on a read event — it names the receiving line instead — so in a DM the reader is recovered from the conversation itself. A group conversation carries no such information, so a group receipt is dropped unless the platform names a reader other than your own line. Treat group read receipts as best-effort.
+* Where a group does report readers, it emits one message per reader, all sharing the same `content.target.id`. Aggregate by that id against `space.getMembers()` to answer "has everyone read it".
+* The agent's own actions are suppressed: `space.read(...)` does not echo back as an inbound event.
+* No direction check is needed. Outbound `read` is fire-and-forget and produces no `Message`, so `content.type === "read"` on `app.messages` is always a receipt.
+
+Aggregating across a group:
+
+```ts theme={null}
+const readers = new Map<string, Set<string>>(); // target id -> reader ids
+
+for await (const [space, message] of app.messages) {
+  if (message.content.type !== "read") continue;
+
+  const targetId = message.content.target.id;
+  const seen = readers.get(targetId) ?? new Set();
+  seen.add(message.sender?.id ?? "");
+  readers.set(targetId, seen);
+
+  const members = await space.getMembers();
+  if (seen.size >= members.length - 1) {
+    console.log(`everyone read ${targetId}`);
+  }
+}
+```
+
+See [Inbound iMessage read receipts](/docs/spectrum-ts/providers/imessage/messaging-features/inbound-read-receipts)
+for the per-provider volume and delivery caveats.

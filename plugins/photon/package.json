@@ -1,0 +1,25 @@
+{
+  "name": "qm-photon-plugin",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Photon-backed iMessage transport and presentation plugin for QM.",
+  "engines": {
+    "node": ">=24.15.0",
+    "npm": ">=11.10.0"
+  },
+  "scripts": {
+    "test": "node --test \"test/**/*.test.ts\"",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "verify": "npm run typecheck && npm test"
+  },
+  "dependencies": {
+    "@photon-ai/advanced-imessage": "2.1.0",
+    "spectrum-ts": "12.8.0"
+  },
+  "devDependencies": {
+    "@photon-ai/cli": "2.2.0",
+    "@types/node": "24.10.1",
+    "typescript": "5.9.3"
+  }
+}
