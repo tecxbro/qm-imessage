@@ -44,3 +44,18 @@ The mandatory original prompt substitution is:
 > Replace base tag `qm-imessage-f0` with `qm-imessage-f0-r1`; do not change the lane assignment.
 
 No f1/f2/f3 tag is created and checkpoint 1 is not claimed.
+
+## Wave A worktree preparation
+
+After the implementation and immutable checkpoint commits, `node scripts/imessage-worktrees.mjs prepare --wave A` validated the repository, integration checkout, tag, checkpoint, ownership bases, registration, branch identity, path containment, origin, current heads, and clean state before mutation. It safely fast-forwarded each existing lane branch from `1f3df849a29e03a415c6626c2865c2d1a59b76f9` to `73e094143916642cae33fa3cf6aeb6344200b66c`:
+
+| Lane | Worktree                                                       | Branch           | Result         |
+| ---- | -------------------------------------------------------------- | ---------------- | -------------- |
+| WT01 | `/Users/darshan/Documents/ChatGPT/qm-imessage/worktrees/wt-01` | `imessage/wt-01` | Fast-forwarded |
+| WT02 | `/Users/darshan/Documents/ChatGPT/qm-imessage/worktrees/wt-02` | `imessage/wt-02` | Fast-forwarded |
+| WT03 | `/Users/darshan/Documents/ChatGPT/qm-imessage/worktrees/wt-03` | `imessage/wt-03` | Fast-forwarded |
+| WT04 | `/Users/darshan/Documents/ChatGPT/qm-imessage/worktrees/wt-04` | `imessage/wt-04` | Fast-forwarded |
+| WT05 | `/Users/darshan/Documents/ChatGPT/qm-imessage/worktrees/wt-05` | `imessage/wt-05` | Fast-forwarded |
+| WT06 | `/Users/darshan/Documents/ChatGPT/qm-imessage/worktrees/wt-06` | `imessage/wt-06` | Fast-forwarded |
+
+All six lane worktrees remained clean after preparation. No worktree was newly created. Main and the foundation worktree were not changed.
