@@ -973,3 +973,45 @@ test("checkpoint verification fails closed when its temporary worktree cannot be
   git(fixture.main, "worktree", "unlock", temporaryWorktree);
   git(fixture.main, "worktree", "remove", "--force", temporaryWorktree);
 });
+
+test("WT00 verification uses the pinned original commit without a wave checkpoint", async (context) => {
+  const fixture = await createIntegrationFixture();
+  context.after(() => rm(fixture.temporary, { recursive: true, force: true }));
+  const worktree = resolve(fixture.workspace, "worktrees/wt-00-foundation");
+  git(fixture.main, "worktree", "add", "-b", "imessage/foundation", worktree, fixture.foundation);
+  const ownershipPath = resolve(worktree, "docs/imessage/ownership.json");
+  const ownership = JSON.parse(await readFile(ownershipPath, "utf8"));
+  ownership.originalBaseline = fixture.base;
+  ownership.lanes["wt-00"] = {
+    wave: "foundation",
+    branch: "imessage/foundation",
+    worktree: "worktrees/wt-00-foundation",
+    baseRef: fixture.base,
+    ownedPaths: ["docs/imessage/**", "package.json"],
+    testFiles: ["test/pass.test.ts"],
+    typecheckPackages: ["."],
+  };
+  await mkdir(resolve(worktree, "docs/imessage/lanes"), { recursive: true });
+  await writeFile(resolve(worktree, "docs/imessage/lanes/wt-00.md"), "foundation fixture\n");
+  await writeFile(ownershipPath, `${JSON.stringify(ownership, null, 2)}\n`);
+  await writeFile(
+    resolve(worktree, "package.json"),
+    `${JSON.stringify({ scripts: { typecheck: "node -e \"process.stdout.write('WT00_TYPECHECK_EXECUTED')\"" } })}\n`,
+  );
+  const verify = () => command(process.execPath, ["scripts/imessage-verify-lane.mjs", "wt-00"], worktree);
+  const valid = verify();
+  assert.equal(valid.status, 0, valid.stderr);
+  assert.match(valid.stdout, new RegExp(`VERIFIED:wt-00:${fixture.base}:`));
+  assert.match(valid.stdout, /VALID:fixture/u);
+  assert.match(valid.stdout, /pass 1/u);
+  assert.match(valid.stdout, /WT00_TYPECHECK_EXECUTED/u);
+  ownership.lanes["wt-00"].baseRef = fixture.foundation;
+  await writeFile(ownershipPath, `${JSON.stringify(ownership, null, 2)}\n`);
+  const wrongBase = verify();
+  assert.notEqual(wrongBase.status, 0);
+  assert.match(wrongBase.stderr, /IMMUTABLE_BASE_TARGET_MISMATCH/u);
+  ownership.lanes["wt-00"].baseRef = fixture.base;
+  await writeFile(ownershipPath, `${JSON.stringify(ownership, null, 2)}\n`);
+  await writeFile(resolve(worktree, "unowned.ts"), "export const value = 1;\n");
+  assert.match(verify().stderr, /UNOWNED_PATHS:wt-00:unowned.ts/u);
+});

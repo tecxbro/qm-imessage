@@ -358,10 +358,18 @@ function waveCheckpoint(context, ownership, wave) {
 }
 
 function expectedLaneBase(root, context, ownership, lane) {
-  const checkpoint = waveCheckpoint(context, ownership, lane.wave);
-  const expected = checkpoint.tagTarget;
-  if (checkpoint.tag !== lane.baseRef) {
-    throw new Error(`IMMUTABLE_BASE_TAG_MISMATCH:${lane.baseRef}:${checkpoint.tag}`);
+  let expected;
+  if (lane === ownership.lanes["wt-00"]) {
+    if (!/^[a-f0-9]{40}$/u.test(ownership.originalBaseline)) {
+      throw new Error(`ORIGINAL_BASELINE_INVALID:${ownership.originalBaseline}`);
+    }
+    expected = ownership.originalBaseline;
+  } else {
+    const checkpoint = waveCheckpoint(context, ownership, lane.wave);
+    expected = checkpoint.tagTarget;
+    if (checkpoint.tag !== lane.baseRef) {
+      throw new Error(`IMMUTABLE_BASE_TAG_MISMATCH:${lane.baseRef}:${checkpoint.tag}`);
+    }
   }
   if (lane.baseCommit !== undefined && lane.baseCommit !== expected) {
     throw new Error(`IMMUTABLE_BASE_COMMIT_MISMATCH:${lane.baseRef}:${lane.baseCommit}:${expected}`);

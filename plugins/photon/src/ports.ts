@@ -12,6 +12,7 @@ import type {
   NormalizedPhotonInput,
   PhotonAppCardHandle,
   PhotonOperationOutcome,
+  PhotonPollState,
   PhotonPresentationOperation,
   PhotonProviderReceipt,
   PhotonReconciliationEvidence,
@@ -353,6 +354,7 @@ export interface AdvancedIMessageProviderClientPort {
   shareContact(
     operation: Extract<PhotonPresentationOperation, { name: "message.contact" }>,
   ): Promise<UnsupportedProviderOutcome>;
+  getPoll(conversation: ConversationReference, pollMessageGuid: string): Promise<PhotonPollState>;
   createPoll(
     operation: Extract<PhotonPresentationOperation, { name: "message.poll.create" }>,
   ): Promise<ProviderOutcomeWithReceipt<"poll">>;

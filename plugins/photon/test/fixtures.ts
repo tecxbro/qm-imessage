@@ -1,5 +1,6 @@
 import type {
   ActionBinding,
+  ConfirmedMessagePart,
   ConversationReference,
   InstallationDisplayStatus,
   InstallationReference,
@@ -539,6 +540,17 @@ export class FakeEventReceiptStore implements EventReceiptStorePort {
     );
     if ((current?.version ?? 0) !== expectedVersion) return false;
     if (current !== undefined && Number(nextSequence) !== Number(current.sequence) + 1) return false;
+    if (
+      current === undefined &&
+      this.receipts.some(
+        (candidate) =>
+          sameScope(candidate.key, scope) &&
+          candidate.key.lineId === scope.lineId &&
+          candidate.sequence !== undefined &&
+          Number(candidate.sequence) < Number(nextSequence),
+      )
+    )
+      return false;
     if (current === undefined) this.checkpoints.push({ scope, sequence: nextSequence, version: 1 });
     else Object.assign(current, { sequence: nextSequence, version: current.version + 1 });
     if (state === "rejected") {
@@ -748,6 +760,21 @@ function validPublicCardHandle(record: PublicCardHandle): boolean {
   );
 }
 
+function preservesConfirmedParts(
+  current: DeliveryOperationRecord,
+  evidenceParts: readonly ConfirmedMessagePart[],
+): boolean {
+  return current.parts
+    .filter((part) => part.state === "confirmed")
+    .every(
+      (part) =>
+        part.providerPart !== undefined &&
+        evidenceParts.some(
+          (candidate) => candidate.logicalPartIndex === part.partIndex && samePart(candidate.part, part.providerPart!),
+        ),
+    );
+}
+
 export class FakeDeliveryOperationStore implements DeliveryOperationStorePort {
   readonly operations: DeliveryOperationRecord[] = [];
 
@@ -863,6 +890,7 @@ export class FakeDeliveryOperationStore implements DeliveryOperationStorePort {
       outcome.kind === "confirmed-message" || outcome.kind === "confirmed-no-message" ? "confirmed" : outcome.kind;
     const confirmed =
       outcome.kind === "confirmed-no-message" || outcome.kind === "unsupported" ? [] : outcome.confirmedParts;
+    if (!preservesConfirmedParts(current, confirmed)) return false;
     if (confirmed.some((part) => part.logicalPartIndex >= current.parts.length)) return false;
     const parts = current.parts.map((part) => {
       const expectedProviderPart =
@@ -917,17 +945,7 @@ export class FakeDeliveryOperationStore implements DeliveryOperationStorePort {
         return false;
     }
     if (evidence.outcome.kind === "confirmed-no-message" && current.parts.length !== 0) return false;
-    const preserved = current.parts
-      .filter((part) => part.state === "confirmed")
-      .every(
-        (part) =>
-          part.providerPart !== undefined &&
-          evidenceParts.some(
-            (candidate) =>
-              candidate.logicalPartIndex === part.partIndex && samePart(candidate.part, part.providerPart!),
-          ),
-      );
-    if (!preserved) return false;
+    if (!preservesConfirmedParts(current, evidenceParts)) return false;
     const state = evidence.outcome.kind === "failed" ? "failed" : "confirmed";
     if (evidenceParts.some((part) => part.logicalPartIndex >= current.parts.length)) return false;
     const parts = current.parts.map((part) => {

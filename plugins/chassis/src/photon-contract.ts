@@ -289,6 +289,17 @@ interface ConversationProviderEvent extends ScopedProviderEvent {
 export type ObservationTarget =
   { kind: "message"; message: MessageTargetReference } | { kind: "conversation"; conversation: ConversationReference };
 
+export interface PhotonPollState {
+  readonly chatGuid: string;
+  readonly pollMessageGuid: string;
+  readonly title: string;
+  readonly options: readonly { optionIdentifier: string; text: string; creatorHandle?: string }[];
+  readonly votes: readonly {
+    optionIdentifier: string;
+    participant: { address: string; country?: string; service: "iMessage" | "SMS" | "RCS" | "unknown" };
+  }[];
+}
+
 export type NormalizedPhotonInput =
   | (ConversationProviderEvent & {
       kind: "message";
@@ -427,7 +438,7 @@ export type PhotonPresentationOperationInput = {
   "message.poll.add-option": { pollMessageGuid: string; text: string };
   "message.app.send": { app: PhotonAppCardSpec };
   "message.app.update": { handle: PhotonAppCardHandle; app: PhotonAppCardSpec };
-  "message.react": { target: MessageTargetReference; reaction: PhotonReaction };
+  "message.react": { target: MessageTargetReference; action: "add" | "remove"; reaction: PhotonReaction };
   "message.edit": { target: MessageTargetReference; content: PhotonEditableContent };
   "message.unsend": { target: MessageTargetReference };
   "conversation.typing": { active: boolean };
@@ -1428,7 +1439,7 @@ function validatePresentationInput(
     "message.poll.add-option": ["pollMessageGuid", "text"],
     "message.app.send": ["app"],
     "message.app.update": ["handle", "app"],
-    "message.react": ["target", "reaction"],
+    "message.react": ["target", "action", "reaction"],
     "message.edit": ["target", "content"],
     "message.unsend": ["target"],
     "conversation.typing": ["active"],
@@ -1511,7 +1522,10 @@ function validatePresentationInput(
   } else if (["message.react", "message.edit", "message.unsend"].includes(name)) {
     messageTargetReference(input.target, `${name}.target`);
     requirePartScope(input.target as MessagePartReference, conversation, `${name}.target`);
-    if (name === "message.react") reaction(input.reaction, `${name}.reaction`);
+    if (name === "message.react") {
+      member(input.action, ["add", "remove"] as const, `${name}.action`);
+      reaction(input.reaction, `${name}.reaction`);
+    }
     if (name === "message.edit") {
       editableContent(input.content, `${name}.content`, conversation);
       if (conversation.provider === "advanced-imessage" && (input.content as PhotonEditableContent).kind !== "text") {

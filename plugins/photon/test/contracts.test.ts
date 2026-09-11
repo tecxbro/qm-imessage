@@ -19,7 +19,9 @@ import {
   type MessageReference,
   type NormalizedPhotonInput,
   type PhotonOperationOutcome,
+  type PhotonPollState,
 } from "../../chassis/src/photon-contract.ts";
+import type { AdvancedIMessageProviderClientPort } from "../src/ports.ts";
 import {
   chats,
   competingActions,
@@ -584,6 +586,7 @@ test("wire validators reject non-JSON values, cycles, class instances, and malfo
       name: "message.react",
       input: {
         target: { ...chats[0], messageId: "message-a", partIndex: Number.MAX_SAFE_INTEGER + 1 },
+        action: "add",
         reaction: { kind: "like" },
       },
     }),
@@ -726,7 +729,11 @@ test("presentation inputs reject arbitrary bags and preserve outbound-only attac
     parsePhotonPresentationOperation({
       ...textOperation(0),
       name: "message.react",
-      input: { target: { ...chats[0], messageId: "message-a" }, reaction: { kind: "custom", value: "x" } },
+      input: {
+        action: "add",
+        target: { ...chats[0], messageId: "message-a" },
+        reaction: { kind: "custom", value: "x" },
+      },
     }),
   );
 });
@@ -969,6 +976,79 @@ test("captured envelopes remain recoverable and identical event IDs are tenant-i
   assert.deepEqual((await store.read(receipts[1]!.key))?.payload, receipts[1]!.payload);
   assert.deepEqual((await store.read(secondLine.key))?.payload, secondLine.payload);
   assert.equal(await store.capture({ ...receipts[0]!, state: "checkpointed", checkpoint: "101" } as never), "conflict");
+});
+
+for (const terminalState of ["checkpointed", "rejected"] as const) {
+  for (const predecessorState of ["captured", "processing"] as const) {
+    test(`first ${terminalState} checkpoint cannot skip a ${predecessorState} predecessor`, async () => {
+      const store = new FakeEventReceiptStore();
+      const now = "2026-09-10T12:00:02.000Z";
+      const expiry = "2026-09-10T12:01:00.000Z";
+      const firstKey = { ...providerEvents[0]!, eventId: "first", lineId: "line-shared" };
+      const secondKey = { ...firstKey, eventId: "second" };
+      for (const [key, sequence] of [
+        [secondKey, "102"],
+        [firstKey, "101"],
+      ] as const) {
+        assert.equal(
+          await store.capture({
+            key,
+            sequence,
+            capturedAt: now,
+            state: "captured",
+            payload: { kind: "reference", reference: `durable://${key.eventId}`, payloadSha256: "a".repeat(64) },
+          }),
+          "captured",
+        );
+      }
+      let first = predecessorState === "processing" ? await store.claim(firstKey, "first", now, expiry) : undefined;
+      const second = await store.claim(secondKey, "second", now, expiry);
+      assert.ok(second?.claim);
+      const finish =
+        terminalState === "checkpointed"
+          ? store.advanceContiguousCheckpoint.bind(store)
+          : (...args: Parameters<typeof store.advanceContiguousCheckpoint>) =>
+              store.rejectAndAdvanceContiguousCheckpoint(...args, "UNSUPPORTED_EVENT");
+      const before = structuredClone(store.receipts);
+      assert.equal(await finish(secondKey, 0, "102", second.claim, now), false);
+      assert.equal(await store.readContiguousCheckpoint(secondKey), undefined);
+      assert.deepEqual(store.receipts, before);
+      first ??= await store.claim(firstKey, "first", now, expiry);
+      assert.ok(first?.claim);
+      assert.equal(await finish(firstKey, 0, "101", first.claim, now), true);
+      assert.equal(await finish(secondKey, 1, "102", second.claim, now), true);
+      assert.equal((await store.read(firstKey))?.state, terminalState);
+      assert.equal((await store.read(secondKey))?.state, terminalState);
+      assert.equal((await store.readContiguousCheckpoint(secondKey))?.sequence, "102");
+    });
+  }
+}
+
+test("initial checkpoint boundaries are isolated by provider, installation, and line", async () => {
+  for (const otherScope of [
+    { ...providerEvents[0]!, provider: "advanced-imessage" as const },
+    { ...providerEvents[0]!, installationId: "other-installation" },
+    { ...providerEvents[0]!, lineId: "other-line" },
+  ]) {
+    const store = new FakeEventReceiptStore();
+    const now = "2026-09-10T12:00:02.000Z";
+    const key = { ...providerEvents[0]!, lineId: "line-shared" };
+    for (const [scope, sequence] of [
+      [otherScope, "101"],
+      [key, "102"],
+    ] as const) {
+      await store.capture({
+        key: scope,
+        sequence,
+        capturedAt: now,
+        state: "captured",
+        payload: { kind: "reference", reference: "durable://event", payloadSha256: "a".repeat(64) },
+      });
+    }
+    const receipt = await store.claim(key, "worker", now, "2026-09-10T12:01:00.000Z");
+    assert.ok(receipt?.claim);
+    assert.equal(await store.advanceContiguousCheckpoint(key, 0, "102", receipt.claim, now), true);
+  }
 });
 
 test("a stale receipt claim cannot complete, reject, or skip a sequence with a newer claim", async () => {
@@ -2104,6 +2184,38 @@ test("retryable failures require a new fenced attempt while ambiguity remains re
       { logicalPartIndex: 1, part: { ...chats[0], ...retryMessage.parts[1] } },
     ],
   });
+  const conflictingPart = { ...chats[0], messageId: "provider-conflicting", partIndex: 0 };
+  for (const conflict of [
+    parsePhotonOperationOutcome({
+      ...retryOutcome,
+      message: {
+        ...retryMessage,
+        messageId: conflictingPart.messageId,
+        parts: [{ messageId: conflictingPart.messageId, partIndex: conflictingPart.partIndex }, retryMessage.parts[1]],
+      },
+      confirmedParts: [
+        { logicalPartIndex: 0, part: conflictingPart },
+        retryOutcome.kind === "confirmed-message" ? retryOutcome.confirmedParts[1] : undefined,
+      ],
+    }),
+    {
+      kind: "failed" as const,
+      operation: operationReference(multipartRetry),
+      code: "TEMPORARY",
+      retryable: true,
+      confirmedParts: [{ logicalPartIndex: 0, part: conflictingPart }],
+    },
+    {
+      kind: "ambiguous" as const,
+      operation: operationReference(multipartRetry),
+      reconciliationKey: "retry-unknown",
+      confirmedParts: [{ logicalPartIndex: 0, part: conflictingPart }],
+    },
+  ]) {
+    const before = structuredClone(await multipartStore.read(multipartRetry));
+    assert.equal(await multipartStore.complete(multipartRetry, multipartRedispatched!.dispatchFence, conflict), false);
+    assert.deepEqual(await multipartStore.read(multipartRetry), before);
+  }
   assert.equal(await multipartStore.complete(multipartRetry, multipartRedispatched!.dispatchFence, retryOutcome), true);
   assert.equal((await multipartStore.read(multipartRetry))?.state, "confirmed");
 });
@@ -2206,4 +2318,47 @@ test("installed Photon declarations and package locks match the frozen evidence"
   assert.equal(lock.packages["node_modules/spectrum-ts"].version, "12.8.0");
   assert.equal(lock.packages["node_modules/@photon-ai/advanced-imessage"].version, "2.1.0");
   assert.equal(lock.packages["node_modules/@photon-ai/cli"].version, "2.2.0");
+});
+
+test("outbound tapbacks require an explicit add or remove action", () => {
+  for (const action of ["add", "remove"] as const) {
+    const operation = {
+      ...textOperation(0),
+      name: "message.react" as const,
+      input: {
+        action,
+        target: { ...chats[0], messageId: "message-a", partIndex: 0 },
+        reaction: { kind: "like" as const },
+      },
+    };
+    assert.deepEqual(parsePhotonPresentationOperation(operation), operation);
+    for (const invalidAction of [undefined, "toggle", true]) {
+      assert.throws(() =>
+        parsePhotonPresentationOperation({ ...operation, input: { ...operation.input, action: invalidAction } }),
+      );
+    }
+  }
+});
+
+test("the poll read port preserves the pinned SDK title, options, and current votes", async () => {
+  const sdkAndPortAgree: Exact<Awaited<ReturnType<AdvancedIMessage["polls"]["get"]>>, PhotonPollState> &
+    Exact<Awaited<ReturnType<AdvancedIMessageProviderClientPort["getPoll"]>>, PhotonPollState> = true;
+  assert.equal(sdkAndPortAgree, true);
+  const poll: Poll = {
+    chatGuid: chats[1].conversationId,
+    pollMessageGuid: "poll-guid",
+    title: "Lunch?",
+    options: [{ optionIdentifier: "pizza", text: "Pizza", creatorHandle: "owner@example.test" }],
+    votes: [
+      { optionIdentifier: "pizza", participant: { address: "voter@example.test", country: "US", service: "iMessage" } },
+    ],
+  };
+  const client: Pick<AdvancedIMessageProviderClientPort, "getPoll"> = {
+    async getPoll(conversation, pollMessageGuid) {
+      assert.deepEqual(conversation, chats[1]);
+      assert.equal(pollMessageGuid, poll.pollMessageGuid);
+      return poll;
+    },
+  };
+  assert.deepEqual(await client.getPoll(chats[1], "poll-guid"), poll);
 });

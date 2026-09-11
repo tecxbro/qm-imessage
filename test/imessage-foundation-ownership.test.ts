@@ -105,6 +105,10 @@ test("shared contracts are integration-owned and review lanes own no production 
     "plugins/photon/src/ports.ts",
     "plugins/web-ui/src/photon/contracts.ts",
     "docs/imessage/contracts.md",
+    "docs/deploy-directory.md",
+    "cli/README.md",
+    "plugins/web-ui/README.md",
+    "plugins/admin/README.md",
   ]) {
     assert.equal(
       ownership.integration.ownedPaths.some((pattern: string) => matches(path, pattern)),
