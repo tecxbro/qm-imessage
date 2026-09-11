@@ -37,7 +37,7 @@ No official source snapshot was refetched or rewritten. The source-lock validato
 
 ## Freeze and Wave A handoff
 
-Because `qm-imessage-f0` already existed locally, it remains unchanged. The corrective tag and checkpoint are pending final verification and fresh-context review. After the implementation commit exists, `qm-imessage-f0-r1` will identify it; a separate documentation-only commit will add the immutable `foundation-checkpoint.json` with the exact tag target, tools, commands, and review result. Final worktree preparation results belong in a separate handoff record so the first-added checkpoint blob never changes.
+The original annotated `qm-imessage-f0` tag remains unchanged at tag object `5675c3be146bde7ca6a08b8d2748750a0021345c`, peeling to `1f3df849a29e03a415c6626c2865c2d1a59b76f9`. The corrected implementation is commit `73e094143916642cae33fa3cf6aeb6344200b66c`. The new annotated `qm-imessage-f0-r1` tag is object `36ba69417a739484f52a34b3aaf61c6cdee6db04` and peels to that implementation commit. `foundation-checkpoint.json` records the immutable target, toolchain, verification commands, and independent review results. Final worktree preparation results will be appended here in a separate documentation-only follow-up commit so the first-added checkpoint blob never changes.
 
 The mandatory original prompt substitution is:
 

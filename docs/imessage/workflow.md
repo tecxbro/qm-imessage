@@ -4,7 +4,7 @@
 
 WT00 started from `0e3f9b9739f5ac695aa02672860ead64da88105e`. The original annotated tag `qm-imessage-f0` resolves to `1f3df849a29e03a415c6626c2865c2d1a59b76f9` locally and is never moved. No matching remote tag was present at repair inspection time.
 
-After verification, the corrective foundation will be frozen under `qm-imessage-f0-r1`. `docs/imessage/integration/foundation-checkpoint.json` is intentionally absent until the repaired commit and tag exist; its docs-only follow-up records the exact resolved target. Every original WT01-WT06 prompt must then make this one-line substitution:
+The corrective foundation is frozen at `73e094143916642cae33fa3cf6aeb6344200b66c` under the annotated tag `qm-imessage-f0-r1`. `docs/imessage/integration/foundation-checkpoint.json` records that exact resolved target in its immutable first-added blob. Every original WT01-WT06 prompt must make this one-line substitution:
 
 > Replace base tag `qm-imessage-f0` with `qm-imessage-f0-r1`; do not change the lane assignment.
 

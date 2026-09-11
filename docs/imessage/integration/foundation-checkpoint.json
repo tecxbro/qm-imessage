@@ -1,0 +1,51 @@
+{
+  "schemaVersion": 1,
+  "tag": "qm-imessage-f0-r1",
+  "tagObject": "36ba69417a739484f52a34b3aaf61c6cdee6db04",
+  "tagTarget": "73e094143916642cae33fa3cf6aeb6344200b66c",
+  "implementationCommit": "73e094143916642cae33fa3cf6aeb6344200b66c",
+  "originalBaseline": "0e3f9b9739f5ac695aa02672860ead64da88105e",
+  "reviewedFoundationCommit": "1f3df849a29e03a415c6626c2865c2d1a59b76f9",
+  "toolVersions": {
+    "node": "v24.15.0",
+    "npm": "11.10.0"
+  },
+  "testFiles": [
+    "plugins/photon/test/contracts.test.ts",
+    "test/imessage-foundation-ownership.test.ts",
+    "test/imessage-foundation-sources.test.ts",
+    "test/imessage-foundation-tooling.test.ts"
+  ],
+  "typecheckPackages": [".", "plugins/photon", "plugins/web-ui"],
+  "verification": [
+    {
+      "command": "npm run verify --prefix plugins/photon",
+      "result": "passed: 36 tests and typecheck"
+    },
+    {
+      "command": "npm run typecheck",
+      "result": "passed"
+    },
+    {
+      "command": "npm run typecheck --prefix plugins/web-ui",
+      "result": "passed: client, server, and test projects"
+    },
+    {
+      "command": "npm run lint && npm run lint:ox && npm run format:check",
+      "result": "passed"
+    },
+    {
+      "command": "node --experimental-test-module-mocks --test test/imessage-foundation-ownership.test.ts test/imessage-foundation-sources.test.ts test/imessage-foundation-tooling.test.ts",
+      "result": "passed: 38 tests"
+    },
+    {
+      "command": "node scripts/imessage-verify-lane.mjs integration --checkpoint docs/imessage/integration/foundation-repair-input.json",
+      "result": "VERIFIED:integration:1f3df849a29e03a415c6626c2865c2d1a59b76f9:0:22"
+    }
+  ],
+  "independentReviews": {
+    "contract": "clean",
+    "tooling": "clean",
+    "documentationAndOwnership": "clean"
+  }
+}
