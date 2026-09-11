@@ -2,33 +2,43 @@
 
 ## Boundary
 
-Photon is an additive transport and presentation plugin. It receives provider events, normalizes them into plain chassis contracts, asks existing QM authority to identify and authorize the actor, invokes existing QM operations, and renders the result back through Photon. It does not own an agent loop, memory, queues, sessions, conversations, approvals, tools, sandboxes, prompts, models, or business records.
+Photon is an additive transport and presentation plugin. One authoritative Spectrum connection owns intake for each installation and line. It normalizes provider events into plain chassis contracts, asks existing QM to identify and authorize the actor, invokes existing QM behavior, and renders checked results through Photon. No messaging webhook is added as a substitute for that planned connection.
 
 ```mermaid
 flowchart LR
-  P[Photon Spectrum and Advanced iMessage] --> I[Photon plugin ingress]
-  I --> C[Plain chassis wire contracts]
+  P[Photon Spectrum and Advanced iMessage] --> I[One intake per installation and line]
+  I --> D[Bounded durable transport inbox]
+  D --> C[Plain chassis contracts]
   C --> A[Existing QM identity and policy]
   A --> Q[Existing QM routes and operations]
-  Q --> R[Photon presentation adapter]
+  Q --> R[Photon delivery and presentation]
   R --> P
-  R --> W[Existing authenticated QM web views]
+  R --> W[Existing authenticated QM views]
 ```
 
-The `plugins/photon` package owns Photon-specific lifecycle, provider adaptation, receipt/checkpoint, message-binding, and delivery-operation ports. Durable implementations remain integration work owned by later lanes. Domain stores stay in QM. The plugin never imports `src/`; the only shared protocol seam is `plugins/chassis/src/photon-contract.ts`.
+Existing QM remains authoritative for agent execution, memory, queues, sessions, conversations, approvals, tools, sandboxes, prompts, models, schedules, business records, and view data. Existing authenticated QM views remain the UI authority. The Photon web host mounts those views and contributes presentation metadata; it does not duplicate their stores or authorization.
 
-The `plugins/web-ui/src/photon/contracts.ts` contribution contract describes existing views and actions that an iMessage-oriented host may mount. It creates presentation metadata only. It does not duplicate storage, resource authorization, or view implementation.
+## Owned implementation layers
 
-## Source authentication and human identity
+- WT01 owns the trusted QM channel and preserves ordinary turn and internal redelivery behavior.
+- WT02 owns actual Photon CLI login, project selection, assignment, and installation lifecycle.
+- WT03 owns PostgreSQL-backed channel mechanics and grants for installation, inbox, checkpoints, bindings, delivery operations, polls, and card handles.
+- WT04 owns the public pinned provider clients, Spectrum connection, subscriptions, recovery, and capability mapping.
+- WT05 owns compatibility with existing QM routing, history, revisions, context, and destinations.
+- WT06 owns the authenticated mini-app host over existing QM views.
 
-Source authentication proves that an HTTP request came from an allowed surface process and that its body was not modified or replayed. It does not prove which human sent an iMessage.
+Later lanes consume the frozen contracts for routing, intake, delivery, native features, views, packaging, and independent acceptance. The integration worktree owns only shared composition and canonical contracts after the foundation freeze.
 
-Human identity is resolved separately from the provider event actor and line/conversation context into QM's canonical identity. Authorization is then evaluated by QM for the exact actor, resource, resource revision, action, session, and conversation. An action binding is usable only by its bound actor before expiration and against the bound resource revision. A valid source-auth signature never upgrades, substitutes for, or bypasses that human authorization.
+## Identity and durability
 
-## Durable effect boundary
+Transport event IDs and provider message GUIDs are different identities. Provider, installation, line, conversation, message, and part scope is preserved structurally so equal provider IDs in two installations never collide. Lifecycle and other non-message events do not receive fabricated text, actor, conversation, or message fields.
 
-Provider event receipts are durably captured before acknowledgment and checkpointed only after successful processing. Outbound operations are reserved durably before provider dispatch. A confirmed provider message records message and message-part identity. A successful operation whose pinned SDK contract returns no message records `confirmed-no-message`. Dispatches whose result cannot be determined record `ambiguous` with a reconciliation key and are reconciled before any retry.
+The bounded durable inbox retains a normalized envelope or retrievable payload until durable QM handoff or rejection. It is not a second transcript or task queue. Claims are fenced; a sequenced success is marked checkpointed, or a sequenced rejection is recorded, in the same durable transition that advances its adjacent safe-integer line cursor. Outbound operations deduplicate by structured scoped logical idempotency, streamed text retains ordered chunks in a durable session before one provider send, and ambiguous provider outcomes reconcile before retry. PostgreSQL implementations remain WT03 work; the foundation defines and tests only contracts and fixtures.
 
-## Capability boundary
+## Security
 
-The foundation records what the pinned public declarations can represent. It does not assert that a configured iMessage provider supports every universal Spectrum builder. Unsupported and unverified capabilities remain explicit outcomes until a later lane proves the selected provider behavior. No live project, line, credential, message, delivery, read receipt, interaction, or device rendering is created by this foundation.
+Source authentication protects the plugin-to-core request. Human identity and policy remain separate QM decisions. Adapter delivery permissions and core-linking permissions remain separate. TypeScript ports narrow application access, while database grants form the eventual persistence security boundary.
+
+## Evidence boundary
+
+The foundation records what pinned public declarations and committed Photon documentation can represent. It does not implement provider adapters, PostgreSQL storage, CLI onboarding, production routes, or UI features. It creates no Photon account, project, installation, line, credential, message, delivery, receipt, interaction, or device rendering. Unsupported and ambiguous outcomes remain explicit.

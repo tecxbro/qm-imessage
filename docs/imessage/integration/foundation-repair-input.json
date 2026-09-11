@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "inputBaseCommit": "1f3df849a29e03a415c6626c2865c2d1a59b76f9",
+  "laneContributions": [],
+  "testFiles": [
+    "plugins/photon/test/contracts.test.ts",
+    "test/imessage-foundation-ownership.test.ts",
+    "test/imessage-foundation-sources.test.ts",
+    "test/imessage-foundation-tooling.test.ts"
+  ],
+  "typecheckPackages": [".", "plugins/photon", "plugins/web-ui"]
+}

@@ -2,6 +2,7 @@
 
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
+import { existsSync, readFileSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -11,13 +12,36 @@ import { apiRoutes, rawRoutes } from "../src/api/routes/index.ts";
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const generatedAt = new Date().toISOString();
 const baseline = "0e3f9b9739f5ac695aa02672860ead64da88105e";
+const ownership = JSON.parse(readFileSync(resolve(root, "docs/imessage/ownership.json"), "utf8"));
 const reviewedFiles = [
   "AGENTS.md",
   "README.md",
   "deployment.md",
   "package.json",
   "plugins/chassis/package.json",
+  "plugins/chassis/src/photon-contract.ts",
+  "plugins/photon/package.json",
+  "plugins/photon/src/ports.ts",
+  "plugins/photon/test/contracts.test.ts",
+  "plugins/photon/test/fixtures.ts",
   "plugins/web-ui/package.json",
+  "plugins/web-ui/src/photon/contracts.ts",
+  "docs/imessage/architecture.md",
+  "docs/imessage/contracts.md",
+  "docs/imessage/workflow.md",
+  "docs/imessage/ownership.json",
+  "docs/imessage/parity.json",
+  "docs/imessage/repository-inventory.json",
+  "docs/imessage/source-lock.json",
+  "docs/imessage/lanes/wt-00.md",
+  "docs/imessage/integration/foundation-repair.md",
+  "scripts/imessage-sources.mjs",
+  "scripts/imessage-inventory.mjs",
+  "scripts/imessage-worktrees.mjs",
+  "scripts/imessage-verify-lane.mjs",
+  "test/imessage-foundation-ownership.test.ts",
+  "test/imessage-foundation-sources.test.ts",
+  "test/imessage-foundation-tooling.test.ts",
   "src/types.ts",
   "src/api/app-types.ts",
   "src/api/routes/turns.ts",
@@ -29,14 +53,36 @@ const reviewedFiles = [
   "src/reach/reach.ts",
 ];
 
+const explicitFoundationAdditions = [
+  "docs/imessage/contracts.md",
+  "docs/imessage/integration/foundation-repair-input.json",
+  "docs/imessage/integration/foundation-repair.md",
+  "test/imessage-foundation-ownership.test.ts",
+  "test/imessage-foundation-sources.test.ts",
+  "test/imessage-foundation-tooling.test.ts",
+];
+
 function gitFiles() {
-  return execFileSync("git", ["-C", root, "ls-files", "--cached", "--others", "--exclude-standard"], {
+  const tracked = execFileSync("git", ["-C", root, "ls-files", "--cached"], {
     encoding: "utf8",
   })
     .trim()
     .split("\n")
-    .filter(Boolean)
-    .sort();
+    .filter(Boolean);
+  const additions = explicitFoundationAdditions.filter((path) => existsSync(resolve(root, path)));
+  return [...new Set([...tracked, ...additions])].sort();
+}
+
+const files = gitFiles();
+const fileContents = new Map();
+
+function textOf(path) {
+  let value = fileContents.get(path);
+  if (value === undefined) {
+    value = readFileSync(resolve(root, path), "utf8");
+    fileContents.set(path, value);
+  }
+  return value;
 }
 
 function parityId(method, path) {
@@ -50,83 +96,58 @@ function parityId(method, path) {
   return `qm-route-${method.toLowerCase()}-${stem}-${digest}`;
 }
 
-const routeSources = [
-  ["/slack/events", "src/api/routes/slack-events.ts"],
-  ["/v1/admin", "src/api/routes/admin.ts"],
-  ["/v1/turns", "src/api/routes/turns.ts"],
-  ["/v1/approvals", "src/api/routes/turns.ts"],
-  ["/v1/runs", "src/api/routes/turns.ts"],
-  ["/v1/deliveries", "src/api/routes/turns.ts"],
-  ["/v1/blobs", "src/api/routes/blobs.ts"],
-  ["/v1/deployment-layer", "src/api/routes/deployment-layer.ts"],
-  ["/v1/credentials", "src/api/routes/credentials.ts"],
-  ["/v1/keychain", "src/api/routes/keychain.ts"],
-  ["/v1/connectors", "src/api/routes/connectors.ts"],
-  ["/v1/files/upload", "src/api/routes/file-uploads.ts"],
-  ["/v1/projects", "src/api/routes/projects.ts"],
-  ["/v1/contexts/policy", "src/api/routes/context-policy.ts"],
-  ["/v1/crons", "src/api/routes/crons.ts"],
-  ["/v1/loops/inbox", "src/api/routes/loop-items.ts"],
-  ["/v1/loops/:id/items", "src/api/routes/loop-items.ts"],
-  ["/v1/loops", "src/api/routes/loops.ts"],
-  ["/v1/reach", "src/api/routes/reach.ts"],
-  ["/v1/webhooks", "src/api/routes/webhooks.ts"],
-  ["/v1/directory", "src/api/routes/directory.ts"],
-  ["/v1/surface-context", "src/api/routes/context.ts"],
-  ["/v1/surface-file", "src/api/routes/context.ts"],
-  ["/v1/pins", "src/api/routes/pins.ts"],
-  ["/v1/surface-cache", "src/api/routes/surface-cache.ts"],
-  ["/v1/environments", "src/api/routes/environments.ts"],
-  ["/v1/emoji", "src/api/routes/emoji.ts"],
-  ["/v1/deployments", "src/api/routes/deployments.ts"],
-  ["/v1/egress-audit", "src/api/routes/egress-audit.ts"],
-  ["/v1/auth/broker", "src/api/routes/auth-broker.ts"],
-  ["/v1/user-model-auth", "src/api/routes/user-model-auth.ts"],
-  ["/v1/search", "src/api/routes/search.ts"],
-  ["/v1/session-state", "src/api/routes/session-state.ts"],
-  ["/v1/loop-items", "src/api/routes/loop-item-events.ts"],
-];
-
-function routeSource(path) {
-  return routeSources.find(([prefix]) => path.startsWith(prefix))?.[1] ?? "src/api/routes/surface.ts";
+function exactLiteralReferences(candidates, value) {
+  const literals = [`"${value}"`, `'${value}'`, `\`${value}\``];
+  return candidates.filter((path) => literals.some((literal) => textOf(path).includes(literal)));
 }
 
-function viewFor(path) {
-  const views = [
-    ["/v1/sessions", "plugins/web-ui/src/chat.ts"],
-    ["/v1/conversations", "plugins/web-ui/src/conversations.ts"],
-    ["/v1/approvals", "plugins/web-ui/src/draft-review.ts"],
-    ["/v1/runs", "plugins/web-ui/src/timeline.ts"],
-    ["/v1/files", "plugins/web-ui/src/files.ts"],
-    ["/v1/memory", "plugins/web-ui/src/memory.ts"],
-    ["/v1/skills", "plugins/web-ui/src/skills.ts"],
-    ["/v1/loops", "plugins/web-ui/src/loops.ts"],
-    ["/v1/webhooks", "plugins/web-ui/src/webhooks.ts"],
-    ["/v1/deployments", "plugins/web-ui/src/deploys.ts"],
-    ["/v1/projects", "plugins/web-ui/src/contexts.ts"],
-    ["/v1/connectors", "plugins/web-ui/src/connectors.ts"],
-    ["/v1/keychain", "plugins/web-ui/src/keychain-state.ts"],
-    ["/v1/crons", "plugins/web-ui/src/crons.ts"],
-    ["/v1/search", "plugins/web-ui/src/search.ts"],
-    ["/v1/admin", "plugins/admin-ui/src/main.ts"],
-  ];
-  return views.find(([prefix]) => path.startsWith(prefix))?.[1] ?? null;
+const routeFiles = files.filter((path) => path.startsWith("src/api/routes/") && path.endsWith(".ts"));
+const viewFiles = files.filter((path) => path.startsWith("plugins/web-ui/src/") && path.endsWith(".ts"));
+const testFiles = files.filter(
+  (path) =>
+    path.endsWith(".test.ts") &&
+    !path.startsWith("test/imessage-foundation-") &&
+    (path.startsWith("test/") || path.includes("/test/")),
+);
+
+function routeSource(method, path) {
+  const candidates = exactLiteralReferences(routeFiles, path).filter((file) =>
+    textOf(file).includes(`method: "${method}"`),
+  );
+  return candidates.length === 1 ? candidates[0] : null;
 }
 
-function laneFor(method, path) {
+function viewsFor(path) {
+  return exactLiteralReferences(viewFiles, path);
+}
+
+function laneFor(path) {
   if (path === "/slack/events" || path === "/healthz") return "integration";
-  if (path.startsWith("/v1/admin")) return method === "GET" ? "wt-13" : "wt-14";
-  if (/^\/v1\/(turns|runs)/u.test(path)) return "wt-03";
-  if (path.startsWith("/v1/approvals")) return "wt-05";
-  if (path.startsWith("/v1/deliveries")) return "wt-16";
-  if (/^\/v1\/(sessions|conversations|session-state|shared-sessions|public-shares)/u.test(path)) return "wt-07";
-  if (/^\/v1\/(files|blobs)/u.test(path)) return "wt-04";
-  if (/^\/v1\/(memory|contexts|surface-context|surface-file|scope-resources|ui-state|soul)/u.test(path)) return "wt-08";
-  if (/^\/v1\/(skills|connectors|keychain|credentials|user-model-auth|auth\/broker)/u.test(path)) return "wt-09";
-  if (/^\/v1\/(crons|loops|loop-items|webhooks|triggers)/u.test(path)) return "wt-10";
-  if (/^\/v1\/(projects|directory|principals|reach|grants|share|pins|environments|emoji)/u.test(path)) return "wt-11";
-  if (/^\/v1\/(deployments|deployment-layer)/u.test(path)) return "wt-12";
-  return "wt-22";
+  if (path === "/v1/reach") return "wt-05";
+  if (/^\/v1\/sessions\/:id\/approvals(?:\/|$)/u.test(path)) return "wt-18";
+  if (/^\/v1\/sessions\/:id\/background(?:\/|$)/u.test(path)) return "wt-20";
+  if (/^\/v1\/(turns|runs|sessions|conversations|session-state|shared-sessions|public-shares)/u.test(path))
+    return "wt-17";
+  if (path.startsWith("/v1/approvals")) return "wt-18";
+  if (/^\/v1\/(surface-context|surface-file)/u.test(path)) return "wt-08";
+  if (/^\/v1\/(files|blobs|memory|contexts|scope-resources|ui-state|soul|skills)/u.test(path)) return "wt-19";
+  if (/^\/v1\/(crons|loops|loop-items|webhooks|triggers)/u.test(path)) return "wt-20";
+  if (
+    /^\/v1\/(admin|applications|settings|runtime-config|connectors|keychain|credentials|user-model-auth|auth\/broker|projects|directory|principals|grants|share|pins|environments|emoji|deployments|deployment-layer)/u.test(
+      path,
+    )
+  )
+    return "wt-21";
+  if (path.startsWith("/v1/deliveries")) return "wt-09";
+  return null;
+}
+
+function infrastructureLanes(path) {
+  const dependencies = ["wt-01", "wt-06", "wt-08"];
+  if (/^\/v1\/(turns|runs|sessions|conversations|surface-context|surface-file|reach)/u.test(path))
+    dependencies.push("wt-05");
+  if (path.startsWith("/v1/deliveries")) dependencies.push("wt-03", "wt-09");
+  return [...new Set(dependencies)];
 }
 
 function representationFor(method, path) {
@@ -177,32 +198,6 @@ function representationFor(method, path) {
   };
 }
 
-function acceptanceTest(path) {
-  const tests = [
-    ["/v1/turns", "test/turn-options.test.ts"],
-    ["/v1/approvals", "test/slack-approval-cards.test.ts"],
-    ["/v1/runs", "test/run-store.test.ts"],
-    ["/v1/deliveries", "test/turn-delivery-dedup.test.ts"],
-    ["/v1/sessions", "test/session-store.test.ts"],
-    ["/v1/conversations", "test/slack-conversation.test.ts"],
-    ["/v1/files", "test/file-upload-routes.test.ts"],
-    ["/v1/memory", "test/notebook.test.ts"],
-    ["/v1/skills", "test/skills-http.test.ts"],
-    ["/v1/connectors", "test/connectors.test.ts"],
-    ["/v1/keychain", "test/keychain.test.ts"],
-    ["/v1/crons", "test/cron-store.test.ts"],
-    ["/v1/loops", "test/loop-routes.test.ts"],
-    ["/v1/webhooks", "test/webhook-routes.test.ts"],
-    ["/v1/projects", "test/projects.test.ts"],
-    ["/v1/directory", "test/directory-resolve.test.ts"],
-    ["/v1/reach", "test/reach.test.ts"],
-    ["/v1/deployments", "test/agent-deployment-fetch.test.ts"],
-    ["/v1/admin", "test/admin-scopes-directory.test.ts"],
-    ["/slack/events", "test/slack-http-events.test.ts"],
-  ];
-  return tests.find(([prefix]) => path.startsWith(prefix))?.[1] ?? "test/route-table.test.ts";
-}
-
 function ownerFor(path) {
   if (path.startsWith("/v1/admin")) return "qm-admin";
   if (path === "/slack/events") return "qm-slack";
@@ -213,36 +208,63 @@ const routes = [...rawRoutes, ...apiRoutes]
   .filter((route) => "path" in route)
   .map((route) => {
     const id = parityId(route.method, route.path);
+    const routeModule = routeSource(route.method, route.path);
+    const viewReferences = viewsFor(route.path);
+    const regressionTests = exactLiteralReferences(testFiles, route.path);
     return {
       parityId: id,
       method: route.method,
       path: route.path,
       auth: route.auth,
       currentOwner: ownerFor(route.path),
-      routeModule: routeSource(route.path),
+      routeModule,
       handler: route.handle.name || "anonymous",
-      surfaceHandler: viewFor(route.path) === null ? null : "plugins/web-ui/server/index.ts",
-      view: viewFor(route.path),
-      acceptanceTest: acceptanceTest(route.path),
+      surfaceHandler: null,
+      view: viewReferences[0] ?? null,
+      viewReferences,
+      existingRegressionTests: regressionTests,
+      routeEvidence:
+        routeModule === null
+          ? "runtime-registered handler; exact source module unverified"
+          : "runtime-registered handler plus exact route literal in one source module",
+      viewEvidence:
+        viewReferences.length === 0
+          ? "no exact existing view reference verified"
+          : "existing files containing the exact route literal; consumer behavior not reviewed by WT00",
     };
   });
 
 const operations = routes.map((route) => {
   const proposal = representationFor(route.method, route.path);
+  const responsibleLane = laneFor(route.path);
+  const plannedTests = responsibleLane?.startsWith("wt-") ? (ownership.lanes[responsibleLane]?.testFiles ?? []) : [];
   return {
     id: route.parityId,
     currentOwner: route.currentOwner,
     existingRoute: `${route.method} ${route.path}`,
-    existingHandler: `${route.routeModule}#${route.handler}`,
+    existingHandler: route.routeModule === null ? null : `${route.routeModule}#${route.handler}`,
     existingView: route.view,
     proposedIMessageRepresentation: proposal.representation,
-    responsibleLane: laneFor(route.method, route.path),
+    responsibleLane,
+    responsibilityEvidence:
+      responsibleLane === null
+        ? "No original lane mapping was verified for this existing operation."
+        : "Mapped from the restored original lane responsibility, not inferred from the HTTP method.",
+    infrastructureDependencies: proposal.status === "unsupported" ? [] : infrastructureLanes(route.path),
     status: proposal.status,
-    acceptanceTest: route.acceptanceTest,
+    existingRegressionTests: route.existingRegressionTests,
+    plannedIMessageAcceptanceTests: plannedTests,
+    plannedTestEvidence:
+      plannedTests.length === 0
+        ? "No lane-specific planned acceptance test is assigned to this operation."
+        : "The owning lane must create and execute these assigned test files; listing them is not execution evidence.",
+    testEvidence:
+      route.existingRegressionTests.length === 0
+        ? "No exact existing regression reference was verified; the responsible lane must add and execute its planned iMessage acceptance test."
+        : "Exact route literals were found in the listed existing tests, but those tests were not executed as iMessage acceptance evidence.",
   };
 });
 
-const files = gitFiles();
 const tests = files.filter(
   (path) => path.startsWith("test/") || (path.startsWith("plugins/") && path.includes("/test/")),
 );
@@ -250,7 +272,9 @@ const inventory = {
   schemaVersion: 1,
   generatedAt,
   baseline,
-  fileAccounting: "All listed files are inventoried by path. Only reviewedFiles are claimed as read for WT00.",
+  fileAccounting:
+    "Tracked files plus the named explicitFoundationAdditions are inventoried. Arbitrary untracked workspace files are excluded. Only reviewedFiles are claimed as read for WT00.",
+  explicitFoundationAdditions,
   trackedAndFoundationFiles: files.map((path) => ({
     path,
     state: reviewedFiles.includes(path) ? "read" : "inventoried",
@@ -296,7 +320,7 @@ const inventory = {
   tests: tests.map((path) => ({
     path,
     state: "inventoried",
-    parityIds: routes.filter((route) => route.acceptanceTest === path).map((route) => route.parityId),
+    parityIds: routes.filter((route) => route.existingRegressionTests.includes(path)).map((route) => route.parityId),
   })),
 };
 

@@ -2,19 +2,52 @@
 
 ## Immutable bases
 
-WT00 is based on `0e3f9b9739f5ac695aa02672860ead64da88105e` and produces immutable tag `qm-imessage-f0`. Wave A uses only that tag. Integration produces `qm-imessage-f1`, `qm-imessage-f2`, and `qm-imessage-f3` after the preceding wave has been independently reviewed, integrated, and verified. Waves B, C, and D use those tags respectively. Existing tags are never moved.
+WT00 started from `0e3f9b9739f5ac695aa02672860ead64da88105e`. The original annotated tag `qm-imessage-f0` resolves to `1f3df849a29e03a415c6626c2865c2d1a59b76f9` locally and is never moved. No matching remote tag was present at repair inspection time.
 
-`scripts/imessage-worktrees.mjs prepare --wave <A|B|C|D>` creates only the lanes in the requested wave. It refuses an unregistered existing path, a wrong branch, a wrong repository, a missing base tag, a branch already registered elsewhere, or a worktree whose base is not an ancestor.
+After verification, the corrective foundation will be frozen under `qm-imessage-f0-r1`. `docs/imessage/integration/foundation-checkpoint.json` is intentionally absent until the repaired commit and tag exist; its docs-only follow-up records the exact resolved target. Every original WT01-WT06 prompt must then make this one-line substitution:
 
-## Ownership
+> Replace base tag `qm-imessage-f0` with `qm-imessage-f0-r1`; do not change the lane assignment.
 
-`ownership.json` is the canonical lane matrix. A feature lane changes only its owned paths. Shared registration files, root package files, current QM routes, canonical architecture/parity/inventory documents, and web server composition are reserved for the integration worktree after F0. A lane reports a needed shared change in its lane document; it does not take ownership by editing the shared file.
+Wave A uses that repair tag. Integration preserves the original sequence: verified Wave A produces `qm-imessage-f1`, Wave B uses f1 and produces f2, Wave C uses f2 and produces f3, and Wave D uses f3. Each wave has a fixed external checkpoint file: `foundation-checkpoint.json`, `checkpoint-1.json`, `checkpoint-2.json`, and `checkpoint-3.json`. The first commit that adds each file is its immutable checkpoint blob; neither that blob nor its tag may move. Later status and handoff evidence belongs in a separate follow-up record.
 
-## Lane gate
+## Original waves and ownership
 
-Each lane starts by verifying the registered absolute path, origin, branch, clean or understood dirty state, immutable base, pinned declarations, and owned paths. Before handoff it runs `scripts/imessage-verify-lane.mjs wt-NN`. The verifier checks identity, base ancestry, changed-path ownership, the locked official source hashes, required documentation, and the lane's focused commands.
+- Wave A: WT01-WT06.
+- Wave B: WT07-WT15.
+- Wave C: WT16-WT22.
+- Wave D: WT23-WT25.
 
-Implementation evidence is separated into these levels:
+`ownership.json` is the exact lane matrix. Each lane owns its listed production and test files plus `docs/imessage/lanes/wt-NN.md`. The original `P/test/` abbreviation is expanded to `plugins/photon/test/`. Feature lanes do not edit shared contracts, canonical iMessage documents, root/package registration, or integration composition. WT05 retains its listed core compatibility files, WT16 retains its listed admin registration files, and WT22 retains its listed CLI registration files.
+
+After the repair freeze, `plugins/chassis/src/photon-contract.ts`, `plugins/photon/src/ports.ts`, `plugins/web-ui/src/photon/contracts.ts`, canonical iMessage documents, and the integration registration paths in `ownership.json` are integration-owned. A lane records a required shared change in its lane document.
+
+WT23-WT25 are independent security, reliability, and product-parity test/review lanes. They do not own production implementation.
+
+## Preparing worktrees
+
+Run `node scripts/imessage-worktrees.mjs prepare --wave A` from the repaired integration checkout only after `qm-imessage-f0-r1` exists, `foundation-checkpoint.json` records its target, and Wave A `baseRef` values and any present `baseCommit` fields match that target. The tool derives the common main checkout and workspace from Git registration. The same command accepts waves B, C, or D but this repair prepares no later wave.
+
+The tool must run from the registered clean integration checkout. It validates the origin, requested wave, canonical lane branch and contained worktree path, base tag, the matching external checkpoint's immutable first-add blob and tag target, every prior wave's recorded lane set and contribution commits, registration, and cleanliness before any mutation. Lane `baseCommit` may redundantly record the externally anchored target but is never a self-referential prerequisite for creating that target. It creates a missing clean lane from the exact external target. An existing clean Wave A lane at the reviewed original foundation can be fast-forwarded with `--ff-only`; any other differing head is blocked. Dirty, divergent, missing-directory, unregistered, occupied, wrong-branch, wrong-origin, missing-tag, conflicting-tag, moved-tag, mutated-checkpoint, outside-workspace, or elsewhere-checked-out cases fail with a precise diagnostic. Nothing is reset, rebased, deleted, relocated, or repurposed.
+
+## Lane verification
+
+Run `node scripts/imessage-verify-lane.mjs wt-NN` inside the lane worktree. Lane mode validates the exact repository, registered path, branch, immutable base against the external post-freeze checkpoint when necessary, owned changes including rename/delete endpoints and untracked files, source lock, lane document, every expected test file, nonzero test discovery in the correct package, and configured package typechecks. Git failures and zero expected tests are failures.
+
+Missing future tests do not block WT00 because the repair checkpoint names only the implemented foundation tests. A lane cannot pass completed verification until every test in its restored assignment exists and runs.
+
+## Integration verification
+
+Run:
+
+```bash
+node scripts/imessage-verify-lane.mjs integration --checkpoint docs/imessage/integration/checkpoint-N.json
+```
+
+The checkpoint records an immutable input commit, captured lane base and commit SHAs, the assembled test files, and affected package typechecks. Integration mode accepts only a foundation input recorded in ownership or the post-freeze checkpoint, requires every captured lane commit in assembled history, derives mandatory tests and typechecks from ownership, verifies each contribution against its own base and ownership, and checks remaining composition changes against integration ownership. It never checks an assembled diff against one feature lane's allowlist and never merges a moving branch name.
+
+The corrective pass uses `docs/imessage/integration/foundation-repair-input.json` with the reviewed foundation commit as its immutable input and no lane contributions.
+
+## Evidence levels
 
 1. Built and typechecked.
 2. Focused tests passed in the lane.
@@ -23,12 +56,6 @@ Implementation evidence is separated into these levels:
 5. Activated or installed in the target runtime.
 6. Accepted by the provider.
 7. Delivered or read according to provider evidence.
-8. Observed on a physical device, including interaction and rendering where applicable.
+8. Observed on a physical device, including interaction and rendering.
 
-No lower level implies a higher one. Fixtures and mocks cannot establish provider or device evidence.
-
-## Integration gates
-
-The integration owner applies one lane at a time, resolves shared registration centrally, runs the lane verifier against the assembled commit, and records conflicts without weakening the frozen contracts or tests. The integration worktree is created from F0 and remains the only owner of shared registration changes.
-
-An F1, F2, or F3 tag is created only after affected tests, root typecheck, lint, formatting, source validation, plugin tests, and an independent fresh-context review pass. A final release additionally requires assembled restart/concurrency recovery and the explicitly authorized protected live checks. The workflow never sends live messages, changes billing, rotates credentials, pushes, or merges `main` unless a separate instruction authorizes that action.
+No lower level implies a higher one. Foundation fixtures do not prove PostgreSQL recovery, CLI login, provider compatibility, delivery, read state, or device behavior.

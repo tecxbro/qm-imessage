@@ -1,12 +1,22 @@
 export const PHOTON_EXISTING_QM_VIEWS = [
   "session",
+  "run",
+  "tasks",
   "approval",
   "background-run",
   "files",
   "memory",
   "skills",
+  "contexts",
   "loops",
+  "crons",
   "webhooks",
+  "inbox",
+  "reviews",
+  "applications",
+  "runtime-settings",
+  "keychain",
+  "administration",
   "deployments",
   "settings",
 ] as const;
@@ -31,11 +41,12 @@ export interface ExistingQmActionContribution {
 
 export interface PhotonHostContribution {
   contributionId: string;
-  conversationId: string;
+  conversation: ConversationReference;
   mounts: readonly ExistingQmViewMount[];
   actions: readonly ExistingQmActionContribution[];
 }
 
 export interface PhotonContributionProvider {
-  forConversation(conversationId: string, actorId: string): Promise<PhotonHostContribution>;
+  forConversation(conversation: ConversationReference, actorId: string): Promise<PhotonHostContribution>;
 }
+import type { ConversationReference } from "../../../chassis/src/photon-contract.ts";
