@@ -38,6 +38,7 @@ import {
   type ReachDirectory,
 } from "../reach/reach.ts";
 import { createSurfaceContextPuller } from "./surface-context-puller.ts";
+import type { PhotonDestinationResolver } from "../surfaces/photon-destinations.ts";
 import {
   isProjectGroupRef,
   projectGroupRef,
@@ -50,6 +51,7 @@ import type { App, AppDeps, ContextSummary, ProjectView, FileListPage } from "./
 import { toFileItem } from "./app-types.ts";
 
 export function createAppHelpers(deps: AppDeps, app: App) {
+  const photonDestinations = (deps as AppDeps & { photonDestinations?: PhotonDestinationResolver }).photonDestinations;
   const adminBase = deps.publicWebUrl?.replace(/\/$/, "");
   const adminLink = (sessionId: string): string | undefined =>
     adminBase ? adminSessionUrl(adminBase, sessionId) : undefined;
@@ -67,6 +69,7 @@ export function createAppHelpers(deps: AppDeps, app: App) {
     resolveGroup: (parts) => deps.directory.resolveGroupByParticipants(parts),
     groupMember: (g, p) => deps.directory.groupMember(g, p),
     directoryMember: (p) => deps.directory.get(p),
+    ...(photonDestinations ? { resolvePhotonDestination: (request) => photonDestinations.resolve(request) } : {}),
     openGroup: (parts) => openGroupViaSurface((query) => surfaceContext.pull("slack", query), parts),
     registerGroup: (g, parts) => deps.directory.upsertGroup(g, parts),
   };

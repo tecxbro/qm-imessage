@@ -10,6 +10,16 @@ import { scopeId as makeScopeId } from "../types.ts";
 import type { DeliveryStore } from "../delivery/delivery-store.ts";
 import type { ChannelResolution, GroupResolution, RecipientResolution } from "../directory/directory-store.ts";
 import { isVisible } from "../directory/visibility.ts";
+import {
+  canonicalPrincipalIds,
+  isPhotonDestination,
+  photonDestinationCandidate,
+  photonDestinationMatches,
+  withPhotonMessage,
+  type PhotonDestinationRequest,
+  type PhotonDestinationResolution,
+  type ReachSurface,
+} from "../surfaces/photon-destinations.ts";
 import { swallow } from "../util/errors.ts";
 
 export function principalDestination(target: string, onBehalfOf: string): Destination {
@@ -23,6 +33,7 @@ export interface ReachDirectory {
   resolveGroup(participants: readonly string[]): Promise<GroupResolution>;
   groupMember(groupId: string, principalId: string): Promise<boolean>;
   directoryMember(principalId: string): Promise<{ type: string } | null>;
+  resolvePhotonDestination?(request: PhotonDestinationRequest): Promise<PhotonDestinationResolution>;
   openGroup?(participants: readonly string[]): Promise<{ groupId: string } | { error: string } | null>;
   registerGroup?(groupId: string, participants: readonly string[]): Promise<void>;
 }
@@ -71,6 +82,7 @@ async function membershipDenial(
 }
 
 export interface ReachTarget {
+  surface?: ReachSurface;
   recipient?: string;
   channel?: string;
   participants?: readonly string[];
@@ -96,12 +108,63 @@ export interface ReachOpts {
   mayOpenGroup?: boolean;
 }
 
+async function resolvePhotonReachDestination(
+  dir: ReachDirectory,
+  request: PhotonDestinationRequest,
+): Promise<{ ok: true; destination: Destination } | Extract<ReachResolution, { ok: false }>> {
+  if (!dir.resolvePhotonDestination) {
+    return {
+      ok: false,
+      status: 404,
+      error: "photon_destination_not_found",
+      message: "no registered iMessage conversation matches that destination",
+    };
+  }
+  const resolved = await dir.resolvePhotonDestination(request);
+  if (resolved.kind === "ambiguous") {
+    const candidates = resolved.candidates
+      .filter((candidate) => isPhotonDestination(candidate) && photonDestinationMatches(candidate, request))
+      .map(photonDestinationCandidate);
+    if (candidates.length) {
+      return {
+        ok: false,
+        status: 409,
+        error: "ambiguous_photon_destination",
+        message: "multiple registered iMessage conversations match — select an exact provider conversation",
+        candidates,
+      };
+    }
+  }
+  if (
+    resolved.kind !== "one" ||
+    !isPhotonDestination(resolved.destination) ||
+    !photonDestinationMatches(resolved.destination, request)
+  ) {
+    return {
+      ok: false,
+      status: 404,
+      error: "photon_destination_not_found",
+      message: "no registered iMessage conversation matches that destination",
+    };
+  }
+  return { ok: true, destination: { ...resolved.destination, onBehalfOf: request.authorityId } };
+}
+
 export async function resolveReachTarget(
   dir: ReachDirectory,
   target: ReachTarget,
   authorityId: string,
   opts: ReachOpts = {},
 ): Promise<ReachResolution> {
+  if (target.surface !== undefined && target.surface !== "slack" && target.surface !== "photon") {
+    return {
+      ok: false,
+      status: 400,
+      error: "bad_request",
+      message: "surface must be slack or photon",
+    };
+  }
+  const surface = target.surface ?? "slack";
   const wantsRecipient = typeof target.recipient === "string";
   const wantsChannel = typeof target.channel === "string";
   const wantsGroup = Array.isArray(target.participants);
@@ -133,6 +196,19 @@ export async function resolveReachTarget(
       };
     }
     const rid = r.member.principalId;
+    if (surface === "photon") {
+      const resolved = await resolvePhotonReachDestination(dir, {
+        kind: "principal",
+        principalId: rid,
+        authorityId,
+      });
+      if (!resolved.ok) return resolved;
+      return {
+        ok: true,
+        destination: resolved.destination,
+        recipient: { principalId: rid, displayName: r.member.displayName },
+      };
+    }
     return {
       ok: true,
       destination: principalDestination(rid, authorityId),
@@ -140,6 +216,14 @@ export async function resolveReachTarget(
     };
   }
   if (wantsChannel) {
+    if (surface === "photon") {
+      return {
+        ok: false,
+        status: 400,
+        error: "surface_not_supported",
+        message: "iMessage has conversations rather than Slack channels — name a recipient or participants",
+      };
+    }
     const r = await dir.resolveChannel(target.channel!);
     if (r.kind === "none") {
       return {
@@ -213,6 +297,31 @@ export async function resolveReachTarget(
       };
     }
     if (participants.length > MAX_GROUP_DM_PARTICIPANTS) return groupTooLarge();
+    if (surface === "photon") {
+      if (!(await dir.directoryMember(authorityId))) return membershipDenial(dir, authorityId, "group");
+      const photonParticipants = canonicalPrincipalIds(participants);
+      const resolved = await resolvePhotonReachDestination(dir, {
+        kind: "group",
+        principalIds: photonParticipants,
+        authorityId,
+      });
+      if (!resolved.ok) return resolved;
+      if (isPhotonDestination(resolved.destination) && resolved.destination.groupId) {
+        await dir
+          .registerGroup?.(resolved.destination.groupId, photonParticipants)
+          .catch((error) => swallow("reach: register resolved Photon group", error));
+      }
+      return {
+        ok: true,
+        destination: resolved.destination,
+        group: {
+          groupId:
+            isPhotonDestination(resolved.destination) && resolved.destination.groupId
+              ? resolved.destination.groupId
+              : resolved.destination.target,
+        },
+      };
+    }
     const groupDestination = (gid: string): ReachResolution => ({
       ok: true,
       destination: { type: "group", target: gid, audienceScopeId: makeScopeId("group", gid) },
@@ -280,11 +389,11 @@ export function withReact(
   destination: Destination,
   react: { messageTs: string; emoji: string } | undefined,
 ): Destination {
-  return react ? { ...destination, react } : destination;
+  return react ? withPhotonMessage({ ...destination, react }, react.messageTs) : destination;
 }
 
 export function withDelete(destination: Destination, del: { messageTs: string } | undefined): Destination {
-  return del ? { ...destination, delete: del } : destination;
+  return del ? withPhotonMessage({ ...destination, delete: del }, del.messageTs) : destination;
 }
 
 export function withThread(destination: Destination, threadTs: string | undefined): Destination {
@@ -295,7 +404,7 @@ export function withThread(destination: Destination, threadTs: string | undefine
 }
 
 export function withEdit(destination: Destination, editRef: string | undefined): Destination {
-  return editRef ? { ...destination, editRef } : destination;
+  return editRef ? withPhotonMessage({ ...destination, editRef }, editRef) : destination;
 }
 
 export function withWebTranscriptText(destination: Destination): Destination {
@@ -327,6 +436,10 @@ export async function reachEnqueue(input: ReachEnqueueInput): Promise<Delivery> 
 
 function isThirdPartyRelay(destination: Destination, attributeAs: string | undefined): boolean {
   if (attributeAs === undefined) return false;
+  if (isPhotonDestination(destination)) {
+    if (destination.conversationKind === "group") return true;
+    return destination.onBehalfOf !== destination.recipientPrincipalId;
+  }
   if (destination.type === "group") return true;
   if (destination.type !== "principal") return false;
   return destination.onBehalfOf !== destination.target;
