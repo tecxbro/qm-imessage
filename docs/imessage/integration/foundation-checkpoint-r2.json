@@ -1,0 +1,54 @@
+{
+  "schemaVersion": 1,
+  "tag": "qm-imessage-f0-r2",
+  "tagObject": "391a595ecbd0643f3d2eebad4db700bbb4d0b883",
+  "tagTarget": "17f7e09f8f1549766e64f995b019f7f7e14d5781",
+  "implementationCommit": "17f7e09f8f1549766e64f995b019f7f7e14d5781",
+  "originalBaseline": "0e3f9b9739f5ac695aa02672860ead64da88105e",
+  "reviewedFoundationCommit": "1f3df849a29e03a415c6626c2865c2d1a59b76f9",
+  "toolVersions": {
+    "node": "v24.18.0",
+    "npm": "11.10.0"
+  },
+  "testFiles": [
+    "plugins/photon/test/contracts.test.ts",
+    "test/imessage-foundation-ownership.test.ts",
+    "test/imessage-foundation-sources.test.ts",
+    "test/imessage-foundation-tooling.test.ts"
+  ],
+  "typecheckPackages": [".", "plugins/photon", "plugins/web-ui"],
+  "verification": [
+    {
+      "command": "node scripts/imessage-sources.mjs validate",
+      "result": "VALID:54"
+    },
+    {
+      "command": "node --experimental-test-module-mocks --test test/imessage-foundation-ownership.test.ts test/imessage-foundation-sources.test.ts test/imessage-foundation-tooling.test.ts",
+      "result": "passed: 42 tests"
+    },
+    {
+      "command": "npm run verify --prefix plugins/photon",
+      "result": "passed: 43 tests and typecheck"
+    },
+    {
+      "command": "npm run typecheck",
+      "result": "passed"
+    },
+    {
+      "command": "npm run typecheck --prefix plugins/web-ui",
+      "result": "passed: client, server, and test projects"
+    },
+    {
+      "command": "npm run lint && npm run lint:ox && npm run format:check",
+      "result": "passed"
+    },
+    {
+      "command": "node scripts/imessage-verify-lane.mjs integration --checkpoint docs/imessage/integration/foundation-repair-input.json",
+      "result": "VERIFIED:integration:1f3df849a29e03a415c6626c2865c2d1a59b76f9:0:23"
+    },
+    {
+      "command": "git diff --exit-code 3c2ea3dcc5b72ed842c8ef200e06f1e2a0bf95cc -- src/ plugins/chassis/src/photon-contract.ts plugins/photon/src/ports.ts plugins/photon/test/fixtures.ts plugins/photon/test/contracts.test.ts docs/imessage/integration/foundation-checkpoint.json",
+      "result": "passed"
+    }
+  ]
+}
