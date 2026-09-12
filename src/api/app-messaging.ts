@@ -21,6 +21,7 @@ import { externalMemberActive } from "../identity/external-members.ts";
 import { hasRevisionEvents, recordMessageRevisions } from "../core/message-revisions.ts";
 import { answerWebContextRequest } from "./web-context.ts";
 import { validateUserSchedule } from "../cron/schedule.ts";
+import { isPhotonDestination, type PhotonDestinationResolver } from "../surfaces/photon-destinations.ts";
 
 import type { App, AppDeps, ReachNowResult } from "./app-types.ts";
 import { CONTEXT_REQUEST_EXPIRY_MS } from "./app-types.ts";
@@ -93,6 +94,7 @@ export function createMessagingMethods(
 > {
   const { adminBase, projectsForViewer, resolveReachTargetFor } = h;
   const { judgeAmbientContainer, ambientSelf } = ambient;
+  const photonDestinations = (deps as AppDeps & { photonDestinations?: PhotonDestinationResolver }).photonDestinations;
   const contextRequests = deps.contextRequests ?? createMemoryMap<SurfaceContextRequest>();
   const contextRequestListeners = new Set<(request: SurfaceContextRequest) => void>();
   const contextRequestTokens = new Map<string, string>();
@@ -292,7 +294,19 @@ export function createMessagingMethods(
       await deps.deliveries.enqueue(input);
     },
     async ingestSurfaceEvents(events, surface = "slack", self) {
-      if (!deps.surfaceCache || !events.length) return { upserted: 0 };
+      if (!events.length) return { upserted: 0 };
+      if (surface === "photon") {
+        if (hasRevisionEvents(events)) {
+          void recordMessageRevisions(deps.sessions, events, undefined, {
+            surface,
+            ...(photonDestinations?.sessionThreadRefs
+              ? { resolveThreadRefs: (conversation) => photonDestinations.sessionThreadRefs!(conversation) }
+              : {}),
+          }).catch((e) => console.error("[revisions] Photon revision record failed:", errMessage(e)));
+        }
+        return { upserted: 0 };
+      }
+      if (!deps.surfaceCache) return { upserted: 0 };
       if (self && (self.name || self.mentionId)) ambientSelf.set(`${orgIdOf()}:${surface}`, self);
       const out = await deps.surfaceCache.ingest(events);
       if (surface === "slack" && hasRevisionEvents(events)) {
@@ -509,10 +523,20 @@ export function createMessagingMethods(
     ...(deps.ambientJudge ? { ambientJudge: deps.ambientJudge } : {}),
     async recordPrincipalDelivery(deliveryId, recipientThreadRef) {
       const delivery = await deps.deliveries.get(deliveryId);
-      if (!delivery || delivery.destination.type !== "principal") return;
-      const recipientId = delivery.destination.target;
+      if (!delivery) return;
+      const photon = isPhotonDestination(delivery.destination) ? delivery.destination : undefined;
+      let recipientId: string | undefined;
+      if (delivery.destination.type === "principal") recipientId = delivery.destination.target;
+      else if (photon?.conversationKind === "dm") recipientId = photon.recipientPrincipalId;
+      if (!recipientId) return;
       const recipientScope = scopeId("personal", recipientId);
-      const session = await deps.sessions.getOrCreateByThread(recipientThreadRef, "dm", recipientScope);
+      const session = await deps.sessions.getOrCreateByThread(
+        recipientThreadRef,
+        "dm",
+        recipientScope,
+        undefined,
+        photon ? "photon" : undefined,
+      );
       await deps.deliveries.recordRecipientThread(delivery.id, recipientThreadRef, Date.now());
       await deps.sessions.addParticipant(session.id, recipientId);
     },
@@ -520,25 +544,29 @@ export function createMessagingMethods(
     async reachNow(input): Promise<ReachNowResult> {
       const hasNamedTarget =
         input.recipient !== undefined || input.channel !== undefined || input.participants !== undefined;
+      const reachSurface = isPhotonDestination(input.currentDestination) ? "photon" : undefined;
       let baseDestination: Destination;
       const extra: {
         recipient?: { principalId: string; displayName: string };
         channel?: { channelId: string; name: string };
         group?: { groupId: string };
       } = {};
-      if (input.delete && !hasNamedTarget) {
+      if ((input.delete || (input.react && reachSurface === "photon")) && !hasNamedTarget) {
         const dest = input.currentDestination;
         if (!dest?.target)
           return {
             ok: false,
             status: 400,
             error: "no_conversation",
-            message: "this conversation has no message surface to delete from — name a channel or its participants",
+            message: input.react
+              ? "this conversation has no message surface for that action — name a channel or its participants"
+              : "this conversation has no message surface to delete from — name a channel or its participants",
           };
         baseDestination = dest;
       } else {
         const r: ReachResolution = await resolveReachTargetFor(
           {
+            ...(reachSurface ? { surface: reachSurface } : {}),
             ...(input.recipient !== undefined ? { recipient: input.recipient } : {}),
             ...(input.channel !== undefined ? { channel: input.channel } : {}),
             ...(input.participants !== undefined ? { participants: input.participants } : {}),

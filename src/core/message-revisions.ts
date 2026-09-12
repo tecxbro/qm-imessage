@@ -9,6 +9,8 @@ import { parseSlackThreadRef, slackThreadRefCandidates } from "../slack/message-
 import type { IngestEvent, SurfaceCache } from "../surface-cache/types.ts";
 import { isoFromTs, xmlAttrEscape, xmlEscape } from "../util/message-tag.ts";
 import { sleep } from "../util/async.ts";
+import { parsePhotonMessageTargetReference, samePhotonMessage } from "../surfaces/photon-destinations.ts";
+import type { ConversationReference, MessageTargetReference } from "../../plugins/chassis/src/photon-contract.ts";
 
 export interface MessageRevisionPayload {
   kind: "message_revision";
@@ -16,12 +18,14 @@ export interface MessageRevisionPayload {
   ts: string;
   text?: string;
   name?: string;
+  providerMessage?: MessageTargetReference;
 }
 
 interface MessageRevisionSource {
   ts: string;
   deleted?: boolean;
   text?: string;
+  providerMessage?: MessageTargetReference;
 }
 
 export type RevisionSessions = TranscriptAppendSessions &
@@ -34,10 +38,11 @@ interface RevisionSession {
 
 export function messageRevision(e: Pick<SessionEntry, "type" | "payload">): MessageRevisionPayload | null {
   if (e.type !== "system") return null;
-  const p = e.payload as { kind?: unknown; action?: unknown; ts?: unknown } | null;
+  const p = e.payload as { kind?: unknown; action?: unknown; ts?: unknown; providerMessage?: unknown } | null;
   if (p?.kind !== "message_revision") return null;
   if (p.action !== "edited" && p.action !== "deleted") return null;
   if (typeof p.ts !== "string" || !p.ts) return null;
+  if (p.providerMessage !== undefined && !parsePhotonMessageTargetReference(p.providerMessage)) return null;
   return p as unknown as MessageRevisionPayload;
 }
 
@@ -65,7 +70,18 @@ interface OriginalMessage {
   name?: string;
 }
 
-function findOriginal(entries: readonly SessionEntry[], ts: string): OriginalMessage | null {
+function sourceMatches(payload: { ts?: unknown; providerMessage?: unknown }, source: MessageRevisionSource): boolean {
+  if (!source.providerMessage) return payload.providerMessage === undefined && payload.ts === source.ts;
+  const providerMessage = parsePhotonMessageTargetReference(payload.providerMessage);
+  return providerMessage ? samePhotonMessage(providerMessage, source.providerMessage) : false;
+}
+
+function revisionMatches(payload: MessageRevisionPayload, source: MessageRevisionSource): boolean {
+  if (!source.providerMessage) return payload.providerMessage === undefined && payload.ts === source.ts;
+  return payload.providerMessage ? samePhotonMessage(payload.providerMessage, source.providerMessage) : false;
+}
+
+function findOriginal(entries: readonly SessionEntry[], source: MessageRevisionSource): OriginalMessage | null {
   let found: OriginalMessage | null = null;
   for (const e of entries) {
     if (e.type !== "user") continue;
@@ -73,10 +89,11 @@ function findOriginal(entries: readonly SessionEntry[], ts: string): OriginalMes
       ts?: unknown;
       text?: unknown;
       name?: unknown;
+      providerMessage?: unknown;
       hidden?: unknown;
       securityTainted?: unknown;
     } | null;
-    if (p?.ts !== ts) continue;
+    if (!p || !sourceMatches(p, source)) continue;
     if (p.hidden === true || p.securityTainted === true) return null;
     found = {
       text: typeof p.text === "string" ? p.text : "",
@@ -90,22 +107,23 @@ function revisionToRecord(
   entries: readonly SessionEntry[],
   source: MessageRevisionSource,
 ): MessageRevisionPayload | null {
-  const original = findOriginal(entries, source.ts);
+  const original = findOriginal(entries, source);
   if (!original) return null;
   let last: MessageRevisionPayload | null = null;
   for (const e of entries) {
     const r = messageRevision(e);
-    if (r && r.ts === source.ts) last = r;
+    if (r && revisionMatches(r, source)) last = r;
   }
   const named = original.name ? { name: original.name } : {};
+  const provider = source.providerMessage ? { providerMessage: source.providerMessage } : {};
   if (source.deleted) {
     if (last?.action === "deleted") return null;
-    return { kind: "message_revision", action: "deleted", ts: source.ts, ...named };
+    return { kind: "message_revision", action: "deleted", ts: source.ts, ...named, ...provider };
   }
   const text = String(source.text ?? "");
   const effective = last?.action === "deleted" ? null : (last?.text ?? original.text);
   if (!text.trim() || text === effective) return null;
-  return { kind: "message_revision", action: "edited", ts: source.ts, text, ...named };
+  return { kind: "message_revision", action: "edited", ts: source.ts, text, ...named, ...provider };
 }
 
 async function recordRevision(
@@ -154,7 +172,31 @@ export async function recordMessageRevisions(
   sessions: RevisionSessions,
   events: readonly IngestEvent[],
   retry: IdleRetry = DEFAULT_IDLE_RETRY,
+  opts: {
+    surface?: string;
+    resolveThreadRefs?: (conversation: ConversationReference) => Promise<readonly string[]>;
+  } = {},
 ): Promise<void> {
+  if (opts.surface === "photon") {
+    if (!opts.resolveThreadRefs) return;
+    for (const event of events.filter(isRevisionEvent)) {
+      const providerMessage = parsePhotonMessageTargetReference(
+        (event as IngestEvent & { providerMessage?: unknown }).providerMessage,
+      );
+      if (!providerMessage) continue;
+      const threadRefs = [...new Set(await opts.resolveThreadRefs(providerMessage))];
+      if (!threadRefs.length) continue;
+      const refs = await sessions.sessionsByThreadRefs(threadRefs);
+      const source: MessageRevisionSource = {
+        ts: providerMessage.messageId,
+        ...(event.deleted ? { deleted: true } : {}),
+        ...(event.text !== undefined ? { text: event.text } : {}),
+        providerMessage,
+      };
+      for (const ref of refs) await recordWhenIdle(sessions, ref, source, retry);
+    }
+    return;
+  }
   for (const event of events.filter(isRevisionEvent)) {
     const refs = await sessions.sessionsByThreadRefs(slackThreadRefCandidates(event.container, event.ts, event.sub));
     for (const ref of refs) await recordWhenIdle(sessions, ref, event, retry);

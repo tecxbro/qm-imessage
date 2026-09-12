@@ -6,6 +6,13 @@ import { isObj } from "./shared.ts";
 import { type ApiCtx, type Route } from "./route.ts";
 import { sleep } from "../../util/async.ts";
 import { awaitContextOutcome } from "../surface-context-puller.ts";
+import {
+  isPhotonDestination,
+  parsePhotonConversationReference,
+  parsePhotonMessageTargetReference,
+  samePhotonConversation,
+} from "../../surfaces/photon-destinations.ts";
+import type { ConversationReference, MessageTargetReference } from "../../../plugins/chassis/src/photon-contract.ts";
 
 const SURFACE_CONTEXT_MAX_MESSAGES = 200;
 const SURFACE_CONTEXT_DEFAULT_MESSAGES = 100;
@@ -14,16 +21,43 @@ const FULFILL_POLL_MS = 100;
 const PENDING_WAIT_CAP_MS = 20_000;
 const PENDING_POLL_MS = 100;
 
+type SurfaceTarget = Pick<SurfaceContextQuery, "channelId" | "channelName" | "conversationTarget"> & {
+  conversation?: ConversationReference;
+};
+
+type PhotonSurfaceFile = NonNullable<SurfaceContextQuery["file"]> & {
+  providerMessage: MessageTargetReference;
+};
+
+type ScopedSurfaceContextQuery = SurfaceContextQuery & {
+  conversation?: ConversationReference;
+  file?: NonNullable<SurfaceContextQuery["file"]> | PhotonSurfaceFile;
+};
+
+function foreignConversation(ctx: ApiCtx): void {
+  sendJson(ctx.res, 403, {
+    error: "foreign_conversation",
+    message: "that iMessage conversation is not the conversation authorized for this request",
+  });
+}
+
 async function resolveSurfaceTarget(
   ctx: ApiCtx,
   b: Record<string, unknown>,
 ): Promise<{
   source: string;
-  target: Pick<SurfaceContextQuery, "channelId" | "channelName" | "conversationTarget">;
+  target: SurfaceTarget;
 } | null> {
   const { res, app, capability } = ctx;
   const cap = capability!;
   if (typeof b.channel === "string" && b.channel.trim()) {
+    if (b.conversation !== undefined) {
+      sendJson(res, 400, {
+        error: "bad_request",
+        message: "name a Slack channel or an iMessage conversation, not both",
+      });
+      return null;
+    }
     const ref = b.channel.trim().replace(/^#/, "");
     if (/^[CG][A-Z0-9]{6,}$/.test(ref)) {
       if (!(await app.channelVisibleTo(cap.actorId, ref))) {
@@ -52,6 +86,29 @@ async function resolveSurfaceTarget(
     return { source: "slack", target: { channelId: r.channel.channelId, channelName: r.channel.name } };
   }
   const dest = cap.destination;
+  if (isPhotonDestination(dest)) {
+    const requested =
+      b.conversation === undefined ? dest.conversation : parsePhotonConversationReference(b.conversation);
+    if (!requested) {
+      sendJson(res, 400, { error: "bad_request", message: "conversation must be a scoped iMessage reference" });
+      return null;
+    }
+    if (!samePhotonConversation(requested, dest.conversation)) {
+      foreignConversation(ctx);
+      return null;
+    }
+    return {
+      source: "photon",
+      target: {
+        conversationTarget: dest.target,
+        conversation: dest.conversation,
+      },
+    };
+  }
+  if (b.conversation !== undefined) {
+    foreignConversation(ctx);
+    return null;
+  }
   if (!dest?.target || dest.type !== "slack") {
     sendJson(res, 400, {
       error: "no_conversation",
@@ -80,7 +137,7 @@ async function createSurfaceContextRequest(ctx: ApiCtx): Promise<void> {
 
   const resolved = await resolveSurfaceTarget(ctx, b);
   if (!resolved) return;
-  const query: SurfaceContextQuery = {
+  const query: ScopedSurfaceContextQuery = {
     ...resolved.target,
     viewer: capability.actorId,
     count,
@@ -97,22 +154,54 @@ async function createSurfaceFileRequest(ctx: ApiCtx): Promise<void> {
     return sendJson(res, 401, { error: "capability_required", message: "this endpoint is for the agent self-API" });
   }
   const b = isObj(body) ? body : {};
-  const ts = typeof b.ts === "string" && b.ts.trim() ? b.ts.trim() : undefined;
-  if (!ts) {
-    return sendJson(res, 400, {
-      error: "bad_request",
-      message: "pass the message's `ts` (find it via /v1/surface-context)",
-    });
-  }
   const threadTs = typeof b.threadTs === "string" && b.threadTs.trim() ? b.threadTs.trim() : undefined;
   const name = typeof b.name === "string" && b.name.trim() ? b.name.trim() : undefined;
 
   const resolved = await resolveSurfaceTarget(ctx, b);
   if (!resolved) return;
-  const query: SurfaceContextQuery = {
+  const ts = typeof b.ts === "string" && b.ts.trim() ? b.ts.trim() : undefined;
+  let file: NonNullable<SurfaceContextQuery["file"]> | PhotonSurfaceFile;
+  if (resolved.source === "photon") {
+    if (threadTs) {
+      return sendJson(res, 400, {
+        error: "bad_request",
+        message: "threadTs is a Slack reference and cannot scope an iMessage file",
+      });
+    }
+    const conversation = resolved.target.conversation!;
+    let providerMessage: MessageTargetReference | undefined;
+    if (b.message !== undefined) providerMessage = parsePhotonMessageTargetReference(b.message);
+    else if (ts) providerMessage = { ...conversation, messageId: ts };
+    if (!providerMessage) {
+      return sendJson(res, 400, {
+        error: "bad_request",
+        message: "pass the scoped iMessage message reference returned by surface context",
+      });
+    }
+    if (!samePhotonConversation(providerMessage, conversation)) {
+      foreignConversation(ctx);
+      return;
+    }
+    if (ts && ts !== providerMessage.messageId) {
+      return sendJson(res, 400, { error: "bad_request", message: "ts contradicts the iMessage message reference" });
+    }
+    file = { ts: providerMessage.messageId, ...(name ? { name } : {}), providerMessage };
+  } else {
+    if (b.message !== undefined) {
+      return sendJson(res, 400, { error: "bad_request", message: "message is an iMessage reference, not a Slack ts" });
+    }
+    if (!ts) {
+      return sendJson(res, 400, {
+        error: "bad_request",
+        message: "pass the message's `ts` (find it via /v1/surface-context)",
+      });
+    }
+    file = { ts, ...(threadTs ? { threadTs } : {}), ...(name ? { name } : {}) };
+  }
+  const query: ScopedSurfaceContextQuery = {
     ...resolved.target,
     count: 1,
-    file: { ts, ...(threadTs ? { threadTs } : {}), ...(name ? { name } : {}) },
+    file,
   };
   const request = await app.createContextRequest(resolved.source, query);
   return awaitFileFulfillment(ctx, request.id);
