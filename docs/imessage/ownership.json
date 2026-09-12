@@ -6,8 +6,12 @@
   "integration": {
     "branch": "imessage/integration",
     "worktree": "worktrees/wt-integration",
-    "baseRef": "qm-imessage-f0-r1",
-    "foundationCheckpoint": "docs/imessage/integration/foundation-checkpoint.json",
+    "baseRef": "qm-imessage-f0-r2",
+    "foundationCheckpoint": "docs/imessage/integration/foundation-checkpoint-r2.json",
+    "foundationUpgradeFromCommits": [
+      "73e094143916642cae33fa3cf6aeb6344200b66c",
+      "3c2ea3dcc5b72ed842c8ef200e06f1e2a0bf95cc"
+    ],
     "testFiles": [
       "plugins/photon/test/contracts.test.ts",
       "test/imessage-foundation-ownership.test.ts",
@@ -92,8 +96,7 @@
       "wave": "A",
       "branch": "imessage/wt-01",
       "worktree": "worktrees/wt-01",
-      "baseRef": "qm-imessage-f0-r1",
-      "baseCommit": "73e094143916642cae33fa3cf6aeb6344200b66c",
+      "baseRef": "qm-imessage-f0-r2",
       "ownedPaths": [
         "src/api/photon-authorization.ts",
         "src/api/photon-core-client.ts",
@@ -115,8 +118,7 @@
       "wave": "A",
       "branch": "imessage/wt-02",
       "worktree": "worktrees/wt-02",
-      "baseRef": "qm-imessage-f0-r1",
-      "baseCommit": "73e094143916642cae33fa3cf6aeb6344200b66c",
+      "baseRef": "qm-imessage-f0-r2",
       "ownedPaths": [
         "plugins/photon/src/setup/cli-process.ts",
         "plugins/photon/src/setup/device-login.ts",
@@ -134,8 +136,7 @@
       "wave": "A",
       "branch": "imessage/wt-03",
       "worktree": "worktrees/wt-03",
-      "baseRef": "qm-imessage-f0-r1",
-      "baseCommit": "73e094143916642cae33fa3cf6aeb6344200b66c",
+      "baseRef": "qm-imessage-f0-r2",
       "ownedPaths": [
         "plugins/chassis/src/photon-state.ts",
         "plugins/chassis/src/photon-state-schema.ts",
@@ -152,8 +153,7 @@
       "wave": "A",
       "branch": "imessage/wt-04",
       "worktree": "worktrees/wt-04",
-      "baseRef": "qm-imessage-f0-r1",
-      "baseCommit": "73e094143916642cae33fa3cf6aeb6344200b66c",
+      "baseRef": "qm-imessage-f0-r2",
       "ownedPaths": [
         "plugins/photon/src/provider/connection.ts",
         "plugins/photon/src/provider/clients.ts",
@@ -172,8 +172,7 @@
       "wave": "A",
       "branch": "imessage/wt-05",
       "worktree": "worktrees/wt-05",
-      "baseRef": "qm-imessage-f0-r1",
-      "baseCommit": "73e094143916642cae33fa3cf6aeb6344200b66c",
+      "baseRef": "qm-imessage-f0-r2",
       "ownedPaths": [
         "src/reach/reach.ts",
         "src/api/app-helpers.ts",
@@ -193,8 +192,7 @@
       "wave": "A",
       "branch": "imessage/wt-06",
       "worktree": "worktrees/wt-06",
-      "baseRef": "qm-imessage-f0-r1",
-      "baseCommit": "73e094143916642cae33fa3cf6aeb6344200b66c",
+      "baseRef": "qm-imessage-f0-r2",
       "ownedPaths": [
         "plugins/web-ui/server/photon-host.ts",
         "plugins/web-ui/src/photon/host.ts",

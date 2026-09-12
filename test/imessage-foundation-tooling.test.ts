@@ -60,7 +60,7 @@ async function createRepository() {
       branch: "imessage/integration",
       worktree: "worktrees/wt-integration",
       baseRef: "fixture-base",
-      foundationCheckpoint: "docs/imessage/integration/foundation-checkpoint.json",
+      foundationCheckpoint: "docs/imessage/integration/foundation-checkpoint-r2.json",
       testFiles: ["test/pass.test.ts"],
       typecheckPackages: [],
       ownedPaths: ["docs/imessage/integration/**", "docs/imessage/ownership.json", "test/*.test.ts"],
@@ -98,7 +98,7 @@ async function createIntegrationFixture() {
   await mkdir(resolve(worktree, "docs/imessage/integration"), { recursive: true });
   await writeFile(resolve(worktree, "docs/imessage/integration/checkpoint.md"), "assembled fixture\n");
   await writeFile(
-    resolve(worktree, "docs/imessage/integration/foundation-checkpoint.json"),
+    resolve(worktree, "docs/imessage/integration/foundation-checkpoint-r2.json"),
     `${JSON.stringify(
       {
         schemaVersion: 1,
@@ -308,7 +308,7 @@ test("verification and preparation reject symbolic checkpoint files", async (con
 
   const preparation = await createIntegrationFixture();
   context.after(() => rm(preparation.temporary, { recursive: true, force: true }));
-  const foundationCheckpoint = resolve(preparation.worktree, "docs/imessage/integration/foundation-checkpoint.json");
+  const foundationCheckpoint = resolve(preparation.worktree, "docs/imessage/integration/foundation-checkpoint-r2.json");
   const outsideFoundationCheckpoint = resolve(preparation.temporary, "foundation-checkpoint.json");
   await rename(foundationCheckpoint, outsideFoundationCheckpoint);
   await symlink(outsideFoundationCheckpoint, foundationCheckpoint);
@@ -548,7 +548,7 @@ test("Wave A preparation rejects coordinated movement of the tag and every edita
   git(fixture.worktree, "commit", "-m", "fixture hidden foundation expansion");
   const movedTarget = git(fixture.worktree, "rev-parse", "HEAD");
   git(fixture.main, "tag", "-f", "fixture-base", movedTarget);
-  const checkpointPath = resolve(fixture.worktree, "docs/imessage/integration/foundation-checkpoint.json");
+  const checkpointPath = resolve(fixture.worktree, "docs/imessage/integration/foundation-checkpoint-r2.json");
   await writeFile(
     checkpointPath,
     `${JSON.stringify(
@@ -602,7 +602,7 @@ test("Wave A preparation checks both endpoints of a foundation rename", async (c
   currentOwnership.lanes["wt-01"].baseCommit = target;
   await writeFile(currentOwnershipPath, `${JSON.stringify(currentOwnership, null, 2)}\n`);
   await writeFile(
-    resolve(worktree, "docs/imessage/integration/foundation-checkpoint.json"),
+    resolve(worktree, "docs/imessage/integration/foundation-checkpoint-r2.json"),
     `${JSON.stringify(
       { schemaVersion: 1, tag: "fixture-base", tagTarget: target, implementationCommit: target },
       null,
@@ -621,7 +621,7 @@ test("Wave A preparation rejects an unrelated checkpoint before creating any lan
   const tree = git(fixture.main, "rev-parse", `${fixture.base}^{tree}`);
   const unrelated = git(fixture.main, "commit-tree", tree, "-m", "unrelated foundation");
   git(fixture.main, "tag", "-f", "fixture-base", unrelated);
-  const checkpointPath = resolve(fixture.worktree, "docs/imessage/integration/foundation-checkpoint.json");
+  const checkpointPath = resolve(fixture.worktree, "docs/imessage/integration/foundation-checkpoint-r2.json");
   await writeFile(
     checkpointPath,
     `${JSON.stringify(
@@ -733,7 +733,7 @@ test("Wave A preparation rejects an unrelated base during preflight", async (con
   const tree = git(fixture.main, "rev-parse", `${fixture.base}^{tree}`);
   const unrelated = git(fixture.main, "commit-tree", tree, "-m", "unrelated foundation");
   git(fixture.main, "tag", "-f", "fixture-base", unrelated);
-  const checkpointPath = resolve(fixture.worktree, "docs/imessage/integration/foundation-checkpoint.json");
+  const checkpointPath = resolve(fixture.worktree, "docs/imessage/integration/foundation-checkpoint-r2.json");
   await writeFile(
     checkpointPath,
     `${JSON.stringify(
@@ -1014,4 +1014,154 @@ test("WT00 verification uses the pinned original commit without a wave checkpoin
   await writeFile(ownershipPath, `${JSON.stringify(ownership, null, 2)}\n`);
   await writeFile(resolve(worktree, "unowned.ts"), "export const value = 1;\n");
   assert.match(verify().stderr, /UNOWNED_PATHS:wt-00:unowned.ts/u);
+});
+
+async function createSuccessorFoundationFixture() {
+  const fixture = await createRepository();
+  const worktree = resolve(fixture.workspace, "worktrees/wt-integration");
+  git(fixture.main, "worktree", "add", "-b", "imessage/integration", worktree, fixture.foundation);
+  const oldTag = "fixture-base-r1";
+  const successorTag = "fixture-base-r2";
+  git(fixture.main, "tag", oldTag, fixture.foundation);
+  const oldCheckpointPath = resolve(worktree, "docs/imessage/integration/foundation-checkpoint.json");
+  await mkdir(resolve(worktree, "docs/imessage/integration"), { recursive: true });
+  await writeFile(
+    oldCheckpointPath,
+    `${JSON.stringify(
+      {
+        schemaVersion: 1,
+        tag: oldTag,
+        tagTarget: fixture.foundation,
+        implementationCommit: fixture.foundation,
+      },
+      null,
+      2,
+    )}\n`,
+  );
+  git(worktree, "add", ".");
+  git(worktree, "commit", "-m", "fixture historical checkpoint");
+  const currentFoundation = git(worktree, "rev-parse", "HEAD");
+  const ownershipPath = resolve(worktree, "docs/imessage/ownership.json");
+  const ownership = JSON.parse(await readFile(ownershipPath, "utf8"));
+  ownership.integration.baseRef = successorTag;
+  ownership.integration.foundationCheckpoint = "docs/imessage/integration/foundation-checkpoint-r2.json";
+  ownership.integration.foundationUpgradeFromCommits = [fixture.foundation, currentFoundation];
+  ownership.integration.ownedPaths.push("docs/imessage/lanes/wt-01.md");
+  ownership.lanes["wt-01"].baseRef = successorTag;
+  delete ownership.lanes["wt-01"].baseCommit;
+  await mkdir(resolve(worktree, "docs/imessage/lanes"), { recursive: true });
+  await writeFile(resolve(worktree, "docs/imessage/lanes/wt-01.md"), "Wave A fixture\n");
+  await writeFile(ownershipPath, `${JSON.stringify(ownership, null, 2)}\n`);
+  git(worktree, "add", ".");
+  git(worktree, "commit", "-m", "fixture successor foundation");
+  const target = git(worktree, "rev-parse", "HEAD");
+  git(fixture.main, "tag", successorTag, target);
+  await writeFile(
+    resolve(worktree, "docs/imessage/integration/foundation-checkpoint-r2.json"),
+    `${JSON.stringify(
+      {
+        schemaVersion: 1,
+        tag: successorTag,
+        tagTarget: target,
+        implementationCommit: target,
+        testFiles: ["test/pass.test.ts"],
+        typecheckPackages: [],
+      },
+      null,
+      2,
+    )}\n`,
+  );
+  git(worktree, "add", ".");
+  git(worktree, "commit", "-m", "fixture successor checkpoint");
+  return {
+    ...fixture,
+    worktree,
+    oldTag,
+    successorTag,
+    oldCheckpointPath,
+    oldCheckpoint: await readFile(oldCheckpointPath, "utf8"),
+    mainHead: git(fixture.main, "rev-parse", "main"),
+    target,
+  };
+}
+
+function assertSuccessorHistoryUnchanged(fixture: Awaited<ReturnType<typeof createSuccessorFoundationFixture>>) {
+  assert.equal(git(fixture.main, "rev-parse", `${fixture.oldTag}^{commit}`), fixture.foundation);
+  assert.equal(git(fixture.main, "rev-parse", "main"), fixture.mainHead);
+  assert.equal(git(fixture.main, "rev-parse", `${fixture.successorTag}^{commit}`), fixture.target);
+}
+
+test("Wave A successor advances an approved clean lane idempotently and verifies from the successor", async (context) => {
+  const fixture = await createSuccessorFoundationFixture();
+  context.after(() => rm(fixture.temporary, { recursive: true, force: true }));
+  const lanePath = resolve(fixture.workspace, "worktrees/wt-01");
+  git(fixture.main, "worktree", "add", "-b", "imessage/wt-01", lanePath, fixture.foundation);
+  const prepared = command(
+    process.execPath,
+    ["scripts/imessage-worktrees.mjs", "prepare", "--wave", "A"],
+    fixture.worktree,
+  );
+  assert.equal(prepared.status, 0, prepared.stderr);
+  assert.match(prepared.stdout, /FAST_FORWARDED:wt-01/u);
+  assert.equal(git(lanePath, "rev-parse", "HEAD"), fixture.target);
+  const repeated = command(
+    process.execPath,
+    ["scripts/imessage-worktrees.mjs", "prepare", "--wave", "A"],
+    fixture.worktree,
+  );
+  assert.equal(repeated.status, 0, repeated.stderr);
+  assert.match(repeated.stdout, /VALID_EXISTING:wt-01/u);
+  const verified = command(process.execPath, ["scripts/imessage-verify-lane.mjs", "wt-01"], lanePath);
+  assert.equal(verified.status, 0, verified.stderr);
+  assert.match(verified.stdout, new RegExp(`VERIFIED:wt-01:${fixture.target}:0`));
+  assert.equal(await readFile(fixture.oldCheckpointPath, "utf8"), fixture.oldCheckpoint);
+  assertSuccessorHistoryUnchanged(fixture);
+});
+
+test("Wave A successor rejects a dirty approved lane without changing its work", async (context) => {
+  const fixture = await createSuccessorFoundationFixture();
+  context.after(() => rm(fixture.temporary, { recursive: true, force: true }));
+  const lanePath = resolve(fixture.workspace, "worktrees/wt-01");
+  git(fixture.main, "worktree", "add", "-b", "imessage/wt-01", lanePath, fixture.foundation);
+  const dirtyPath = resolve(lanePath, "dirty.txt");
+  await writeFile(dirtyPath, "preserve me\n");
+  const head = git(lanePath, "rev-parse", "HEAD");
+  const status = git(lanePath, "status", "--porcelain=v1");
+  const prepared = command(
+    process.execPath,
+    ["scripts/imessage-worktrees.mjs", "prepare", "--wave", "A"],
+    fixture.worktree,
+  );
+  assert.notEqual(prepared.status, 0);
+  assert.match(prepared.stderr, /DIRTY_WORKTREE:wt-01/u);
+  assert.equal(git(lanePath, "rev-parse", "HEAD"), head);
+  assert.equal(git(lanePath, "status", "--porcelain=v1"), status);
+  assert.equal(await readFile(dirtyPath, "utf8"), "preserve me\n");
+  assert.equal(await readFile(fixture.oldCheckpointPath, "utf8"), fixture.oldCheckpoint);
+  assertSuccessorHistoryUnchanged(fixture);
+});
+
+test("Wave A successor rejects a feature-bearing lane without changing its work", async (context) => {
+  const fixture = await createSuccessorFoundationFixture();
+  context.after(() => rm(fixture.temporary, { recursive: true, force: true }));
+  const lanePath = resolve(fixture.workspace, "worktrees/wt-01");
+  git(fixture.main, "worktree", "add", "-b", "imessage/wt-01", lanePath, fixture.foundation);
+  await mkdir(resolve(lanePath, "lane"), { recursive: true });
+  const featurePath = resolve(lanePath, "lane/one.ts");
+  await writeFile(featurePath, "export const feature = true;\n");
+  git(lanePath, "add", ".");
+  git(lanePath, "commit", "-m", "fixture feature work");
+  const head = git(lanePath, "rev-parse", "HEAD");
+  const prepared = command(
+    process.execPath,
+    ["scripts/imessage-worktrees.mjs", "prepare", "--wave", "A"],
+    fixture.worktree,
+  );
+  assert.notEqual(prepared.status, 0);
+  assert.match(prepared.stderr, /EXISTING_WORKTREE_BASE_MISMATCH:wt-01/u);
+  assert.equal(git(lanePath, "rev-parse", "HEAD"), head);
+  assert.equal(await readFile(featurePath, "utf8"), "export const feature = true;\n");
+  assert.equal(git(lanePath, "status", "--porcelain=v1"), "");
+  assert.equal(await readFile(fixture.oldCheckpointPath, "utf8"), fixture.oldCheckpoint);
+  assertSuccessorHistoryUnchanged(fixture);
 });

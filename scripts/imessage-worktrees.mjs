@@ -61,7 +61,7 @@ function exactCommit(main, value, label) {
 }
 
 const checkpointPaths = {
-  A: "docs/imessage/integration/foundation-checkpoint.json",
+  A: "docs/imessage/integration/foundation-checkpoint-r2.json",
   B: "docs/imessage/integration/checkpoint-1.json",
   C: "docs/imessage/integration/checkpoint-2.json",
   D: "docs/imessage/integration/checkpoint-3.json",
@@ -267,7 +267,11 @@ function planLane(context, ownership, entries, laneId, lane, expectedBase) {
     if (head === base) {
       return { action: "valid", base, expectedPath, head, laneId };
     }
-    if (lane.wave === "A" && head === ownership.reviewedFoundationCommit) {
+    const upgradeFrom = new Set([
+      ownership.reviewedFoundationCommit,
+      ...(ownership.integration.foundationUpgradeFromCommits ?? []),
+    ]);
+    if (lane.wave === "A" && upgradeFrom.has(head)) {
       if (git(expectedPath, ["merge-base", "--is-ancestor", head, base], true).status !== 0) {
         throw new Error(`NON_FAST_FORWARD_BASE:${laneId}:${head}:${base}`);
       }

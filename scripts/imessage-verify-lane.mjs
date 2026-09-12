@@ -139,7 +139,7 @@ function requireRegularFileInside(root, path, label) {
 }
 
 const checkpointPaths = {
-  A: "docs/imessage/integration/foundation-checkpoint.json",
+  A: "docs/imessage/integration/foundation-checkpoint-r2.json",
   B: "docs/imessage/integration/checkpoint-1.json",
   C: "docs/imessage/integration/checkpoint-2.json",
   D: "docs/imessage/integration/checkpoint-3.json",

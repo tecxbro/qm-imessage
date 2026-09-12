@@ -4,11 +4,13 @@
 
 WT00 started from `0e3f9b9739f5ac695aa02672860ead64da88105e`. The original annotated tag `qm-imessage-f0` resolves to `1f3df849a29e03a415c6626c2865c2d1a59b76f9` locally and is never moved. No matching remote tag was present at repair inspection time.
 
-The corrective foundation is frozen at `73e094143916642cae33fa3cf6aeb6344200b66c` under the annotated tag `qm-imessage-f0-r1`. `docs/imessage/integration/foundation-checkpoint.json` records that exact resolved target in its immutable first-added blob. Every original WT01-WT06 prompt must make this one-line substitution:
+The first corrective foundation is frozen at `73e094143916642cae33fa3cf6aeb6344200b66c` under the annotated tag `qm-imessage-f0-r1`. Its immutable historical record remains `docs/imessage/integration/foundation-checkpoint.json`; neither the tag nor that checkpoint moves.
 
-> Replace base tag `qm-imessage-f0` with `qm-imessage-f0-r1`; do not change the lane assignment.
+WT01-WT06 start from `qm-imessage-f0-r2`. The original lane assignments remain unchanged. `docs/imessage/integration/foundation-checkpoint-r2.json` is the separate successor checkpoint and records the real tagged commit only after the verified candidate is committed and tagged. Every original WT01-WT06 prompt must make this one-line substitution:
 
-Wave A uses that repair tag. Integration preserves the original sequence: verified Wave A produces `qm-imessage-f1`, Wave B uses f1 and produces f2, Wave C uses f2 and produces f3, and Wave D uses f3. Each wave has a fixed external checkpoint file: `foundation-checkpoint.json`, `checkpoint-1.json`, `checkpoint-2.json`, and `checkpoint-3.json`. The first commit that adds each file is its immutable checkpoint blob; neither that blob nor its tag may move. Later status and handoff evidence belongs in a separate follow-up record.
+> Replace the prior base tag with `qm-imessage-f0-r2`; do not change the lane assignment.
+
+Wave A uses that successor tag. Integration preserves the original sequence: verified Wave A produces `qm-imessage-f1`, Wave B uses f1 and produces f2, Wave C uses f2 and produces f3, and Wave D uses f3. The active external checkpoint files are `foundation-checkpoint-r2.json`, `checkpoint-1.json`, `checkpoint-2.json`, and `checkpoint-3.json`. The first commit that adds each file is its immutable checkpoint blob; neither that blob nor its tag may move. Historical f0/r1 records remain untouched. Later status and handoff evidence belongs in a separate follow-up record.
 
 ## Original waves and ownership
 
@@ -25,9 +27,9 @@ WT23-WT25 are independent security, reliability, and product-parity test/review 
 
 ## Preparing worktrees
 
-Run `node scripts/imessage-worktrees.mjs prepare --wave A` from the repaired integration checkout only after `qm-imessage-f0-r1` exists, `foundation-checkpoint.json` records its target, and Wave A `baseRef` values and any present `baseCommit` fields match that target. The tool derives the common main checkout and workspace from Git registration. The same command accepts waves B, C, or D but this repair prepares no later wave.
+Run `node scripts/imessage-worktrees.mjs prepare --wave A` from the repaired integration checkout only after `qm-imessage-f0-r2` exists, `foundation-checkpoint-r2.json` records its target, and every Wave A `baseRef` selects that tag. The tool derives the common main checkout and workspace from Git registration. The same command accepts waves B, C, or D but this repair prepares no later wave.
 
-The tool must run from the registered clean integration checkout. It validates the origin, requested wave, canonical lane branch and contained worktree path, base tag, the matching external checkpoint's immutable first-add blob and tag target, every prior wave's recorded lane set and contribution commits, registration, and cleanliness before any mutation. Lane `baseCommit` may redundantly record the externally anchored target but is never a self-referential prerequisite for creating that target. It creates a missing clean lane from the exact external target. An existing clean Wave A lane at the reviewed original foundation can be fast-forwarded with `--ff-only`; any other differing head is blocked. Dirty, divergent, missing-directory, unregistered, occupied, wrong-branch, wrong-origin, missing-tag, conflicting-tag, moved-tag, mutated-checkpoint, outside-workspace, or elsewhere-checked-out cases fail with a precise diagnostic. Nothing is reset, rebased, deleted, relocated, or repurposed.
+The tool must run from the registered clean integration checkout. It validates the origin, requested wave, canonical lane branch and contained worktree path, base tag, the matching external checkpoint's immutable first-add blob and tag target, every prior wave's recorded lane set and contribution commits, registration, and cleanliness before any mutation. Lane `baseCommit` may redundantly record an already frozen external target but is never a self-referential prerequisite for creating that target. It creates a missing clean lane from the exact external target. An existing clean Wave A lane can be fast-forwarded with `--ff-only` only when its head is the reviewed original foundation or one of the exact `foundationUpgradeFromCommits`; any other differing head is blocked. Dirty, divergent, missing-directory, unregistered, occupied, wrong-branch, wrong-origin, missing-tag, conflicting-tag, moved-tag, mutated-checkpoint, outside-workspace, or elsewhere-checked-out cases fail with a precise diagnostic. Nothing is reset, rebased, deleted, relocated, or repurposed.
 
 ## Lane verification
 
@@ -45,7 +47,7 @@ node scripts/imessage-verify-lane.mjs integration --checkpoint docs/imessage/int
 
 The checkpoint records an immutable input commit, captured lane base and commit SHAs, the assembled test files, and affected package typechecks. Integration mode accepts only a foundation input recorded in ownership or the post-freeze checkpoint, requires every captured lane commit in assembled history, derives mandatory tests and typechecks from ownership, verifies each contribution against its own base and ownership, and checks remaining composition changes against integration ownership. It never checks an assembled diff against one feature lane's allowlist and never merges a moving branch name.
 
-The corrective pass uses `docs/imessage/integration/foundation-repair-input.json` with the reviewed foundation commit as its immutable input and no lane contributions.
+The corrective pass uses `docs/imessage/integration/foundation-repair-input.json` with the reviewed foundation commit as its immutable candidate input and no lane contributions. That candidate record is not a declaration that an untagged commit is frozen. After the candidate passes its gates, `foundation-checkpoint-r2.json` records the actual `qm-imessage-f0-r2` target. Integration checkpoint 1 happens only after WT01-WT06 finish and are assembled.
 
 ## Evidence levels
 
