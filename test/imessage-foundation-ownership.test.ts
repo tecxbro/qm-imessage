@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
@@ -125,6 +126,125 @@ test("shared contracts are integration-owned and review lanes own no production 
       laneId,
     );
   }
+});
+
+test("checkpoint repair preparation preserves the original lane ownership", async () => {
+  const ownership = JSON.parse(await readFile(new URL("../docs/imessage/ownership.json", import.meta.url), "utf8"));
+  assert.deepEqual(ownership.checkpointRepairs, {
+    reviewedInput: "4b1ce5a8326979cb8cf59eb966df4906a901dd38",
+    contract: "docs/imessage/repairs/contract.md",
+    ownership: "docs/imessage/repairs/ownership.json",
+    sharedStateModules: ["plugins/chassis/src/photon-state/db.ts", "plugins/chassis/src/photon-state/shared.ts"],
+    focusedStateModules: {
+      r02: "plugins/chassis/src/photon-state/bindings.ts",
+      r03: "plugins/chassis/src/photon-state/receipts.ts",
+      r04: "plugins/chassis/src/photon-state/deliveries.ts",
+    },
+    postgresHarness: "test/helpers/cp1-postgres.ts",
+  });
+});
+
+test("checkpoint repair ownership is exclusive, complete, and based by dispatch record", async () => {
+  const ownership = JSON.parse(
+    await readFile(new URL("../docs/imessage/repairs/ownership.json", import.meta.url), "utf8"),
+  );
+  const repairIds = Array.from({ length: 14 }, (_, index) => `r${String(index + 1).padStart(2, "0")}`);
+  assert.deepEqual(Object.keys(ownership.repairs), repairIds);
+  assert.deepEqual(Object.keys(ownership.joins), ["r15", "r16"]);
+  assert.deepEqual(ownership.repairBaseResolution, {
+    record: "post-commit coordinator dispatch",
+    recordPath: "cp1-repair-dispatch.json",
+    resolveFrom: "git-common-dir",
+    schemaVersion: 1,
+    field: "repairBaseCommit",
+    format: "40 lowercase hexadecimal characters",
+    requiredForEveryRepair: true,
+    requiredFields: ["schemaVersion", "reviewedInput", "repairBaseCommit", "repairs"],
+  });
+  assert.equal(ownership.schemaVersion, 1);
+  assert.deepEqual(ownership.reviewedInput, {
+    branch: "integration-1",
+    commit: "4b1ce5a8326979cb8cf59eb966df4906a901dd38",
+  });
+
+  const branches = repairIds.map((repairId) => ownership.repairs[repairId].branch);
+  const worktrees = repairIds.map((repairId) => ownership.repairs[repairId].worktree);
+  assert.equal(new Set(branches).size, repairIds.length);
+  assert.equal(new Set(worktrees).size, repairIds.length);
+
+  for (const repairId of repairIds) {
+    const repair = ownership.repairs[repairId];
+    assert.equal(repair.base, "repairBaseCommit", repairId);
+    assert.equal(repair.branch, `cp1/${repairId}`, repairId);
+    assert.equal(repair.worktree, `worktrees/cp1-${repairId}`, repairId);
+    assert.equal(repair.ownedPaths.includes(`docs/imessage/repairs/${repairId}.md`), true, repairId);
+  }
+
+  const tasks = Object.entries<{ ownedPaths: string[]; dependsOn?: string[] }>({
+    ...ownership.repairs,
+    ...ownership.joins,
+  });
+  for (let leftIndex = 0; leftIndex < tasks.length; leftIndex += 1) {
+    const [leftId, left] = tasks[leftIndex]!;
+    for (let rightIndex = leftIndex + 1; rightIndex < tasks.length; rightIndex += 1) {
+      const [rightId, right] = tasks[rightIndex]!;
+      for (const leftPath of left.ownedPaths) {
+        assert.equal(
+          right.ownedPaths.some((rightPath) => matches(leftPath, rightPath) || matches(rightPath, leftPath)),
+          false,
+          `${leftId}:${rightId}:${leftPath}`,
+        );
+      }
+    }
+    for (const leftPath of left.ownedPaths) {
+      assert.equal(
+        ownership.coordinator.ownedPaths.some(
+          (coordinatorPath: string) => matches(leftPath, coordinatorPath) || matches(coordinatorPath, leftPath),
+        ),
+        false,
+        `coordinator:${leftId}:${leftPath}`,
+      );
+    }
+    for (const dependency of left.dependsOn ?? []) {
+      assert.equal(
+        tasks.some(([taskId]) => taskId === dependency),
+        true,
+        `${leftId}:${dependency}`,
+      );
+      assert.notEqual(dependency, leftId);
+    }
+  }
+
+  const pending = new Set(tasks.map(([taskId]) => taskId));
+  const complete = new Set<string>();
+  while (pending.size > 0) {
+    const ready = [...pending].filter((taskId) => {
+      const task = tasks.find(([candidate]) => candidate === taskId)![1];
+      return (task.dependsOn ?? []).every((dependency) => complete.has(dependency));
+    });
+    assert.ok(ready.length > 0, "repair dependency graph contains a cycle");
+    for (const taskId of ready) {
+      pending.delete(taskId);
+      complete.add(taskId);
+    }
+  }
+
+  assert.deepEqual(ownership.joins.r15.dependsOn, repairIds);
+  assert.equal(ownership.joins.r16.dependsOn.at(-1), "r15");
+  assert.deepEqual(ownership.coordinator.migrationReservations, {
+    "photon/state/0002": ["coordinator"],
+  });
+  const manifestContract = {
+    schemaVersion: ownership.schemaVersion,
+    reviewedInput: ownership.reviewedInput,
+    coordinator: ownership.coordinator,
+    repairs: ownership.repairs,
+    joins: ownership.joins,
+  };
+  assert.equal(
+    createHash("sha256").update(JSON.stringify(manifestContract)).digest("hex"),
+    "910dd26a2fdcfb8be9b0d0cb7162d19feb21df8b5f763262c22789863c16ad7c",
+  );
 });
 
 test("lane typechecks cover every owned TypeScript package and real CI registration", async () => {

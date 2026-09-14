@@ -68,6 +68,18 @@
       "src/wiring.ts"
     ]
   },
+  "checkpointRepairs": {
+    "reviewedInput": "4b1ce5a8326979cb8cf59eb966df4906a901dd38",
+    "contract": "docs/imessage/repairs/contract.md",
+    "ownership": "docs/imessage/repairs/ownership.json",
+    "sharedStateModules": ["plugins/chassis/src/photon-state/db.ts", "plugins/chassis/src/photon-state/shared.ts"],
+    "focusedStateModules": {
+      "r02": "plugins/chassis/src/photon-state/bindings.ts",
+      "r03": "plugins/chassis/src/photon-state/receipts.ts",
+      "r04": "plugins/chassis/src/photon-state/deliveries.ts"
+    },
+    "postgresHarness": "test/helpers/cp1-postgres.ts"
+  },
   "lanes": {
     "wt-00": {
       "wave": "foundation",

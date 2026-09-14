@@ -5,6 +5,7 @@ import {
   type PhotonStateStores,
   type PhotonStateTransaction,
 } from "../../chassis/src/photon-state.ts";
+import { PHOTON_STATE_MIGRATIONS } from "../../chassis/src/photon-state-schema.ts";
 
 export interface PhotonStatePoolClient {
   query(
@@ -25,6 +26,14 @@ export interface PhotonStatePool {
 export interface PhotonStateRuntime {
   stores: PhotonStateStores;
   close(): Promise<void>;
+}
+
+export interface PhotonStateMigrationRegistrar {
+  registerMigration(migration: { id: string; statements: readonly string[] }): void;
+}
+
+export function registerPhotonStateMigrations(registrar: PhotonStateMigrationRegistrar): void {
+  for (const migration of PHOTON_STATE_MIGRATIONS) registrar.registerMigration(migration);
 }
 
 function normalized<Row extends Record<string, unknown>>(result: {

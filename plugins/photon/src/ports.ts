@@ -36,6 +36,30 @@ export interface InstallationStorePort {
   compareAndSet(installationId: string, expectedVersion: number, next: InstallationRecord): Promise<boolean>;
 }
 
+export interface PhotonInstallationCiphertextRecord {
+  installationId: string;
+  ownerRevision: string;
+  version: number;
+  wrappingKeyId: string;
+  ciphertext: string;
+}
+
+export interface PhotonInstallationCiphertextStore {
+  read(installationId: string): Promise<PhotonInstallationCiphertextRecord | undefined>;
+  create(record: PhotonInstallationCiphertextRecord): Promise<boolean>;
+  compareAndSet(
+    installationId: string,
+    expectedVersion: number,
+    next: PhotonInstallationCiphertextRecord,
+  ): Promise<boolean>;
+}
+
+export interface PhotonInstallationStoreAdapter {
+  read(installationId: string): Promise<InstallationRecord | undefined>;
+  create(record: InstallationRecord): Promise<boolean>;
+  compareAndSet(installationId: string, expectedVersion: number, next: InstallationRecord): Promise<boolean>;
+}
+
 export interface VerifiedAddressChallenge {
   challengeId: string;
   installationId: string;
@@ -131,6 +155,29 @@ export interface EventReceiptStorePort {
   ): Promise<boolean>;
 }
 
+export interface ReceiptRecoveryCursor {
+  capturedAt: string;
+  eventId: string;
+}
+
+export interface ReceiptRecoveryQuery {
+  provider: ProviderEventKey["provider"];
+  installationId: string;
+  lineId?: string;
+  now: string;
+  limit: number;
+  after?: ReceiptRecoveryCursor;
+}
+
+export interface ReceiptRecoveryPage {
+  receipts: readonly EventReceipt[];
+  next?: ReceiptRecoveryCursor;
+}
+
+export interface RecoverableEventReceiptStorePort extends EventReceiptStorePort {
+  discoverRecoverable(query: ReceiptRecoveryQuery): Promise<ReceiptRecoveryPage>;
+}
+
 export interface ChatSessionBinding {
   conversation: ConversationReference;
   qmSessionId: string;
@@ -140,6 +187,20 @@ export interface ChatSessionBinding {
 export interface ChatSessionBindingStorePort {
   bind(binding: ChatSessionBinding): Promise<"bound" | "duplicate" | "conflict">;
   find(conversation: ConversationReference): Promise<ChatSessionBinding | undefined>;
+}
+
+export interface ChatSessionSelection {
+  binding: ChatSessionBinding;
+  version: number;
+}
+
+export interface ChatSessionSelectionStorePort extends ChatSessionBindingStorePort {
+  readSelection(conversation: ConversationReference): Promise<ChatSessionSelection | undefined>;
+  compareAndSetSelection(
+    conversation: ConversationReference,
+    expectedVersion: number,
+    next: ChatSessionBinding,
+  ): Promise<ChatSessionSelection | undefined>;
 }
 
 export interface MessageBinding {
@@ -199,6 +260,75 @@ export interface DeliveryOperationStorePort {
   ): Promise<boolean>;
   reconcile(evidence: PhotonReconciliationEvidence, expectedVersion: number): Promise<boolean>;
   read(operation: PhotonPresentationOperation): Promise<DeliveryOperationRecord | undefined>;
+}
+
+export interface DeliveryDispatchClaim {
+  ownerId: string;
+  fence: number;
+  leaseExpiresAt: string;
+}
+
+export interface RecoverableDeliveryOperationRecord extends DeliveryOperationRecord {
+  dispatchClaim?: DeliveryDispatchClaim;
+}
+
+export interface DeliveryRecoveryCursor {
+  updatedAt: string;
+  conversationId: string;
+  idempotencyKey: string;
+}
+
+export interface DeliveryRecoveryQuery {
+  provider: ProviderLineScope["provider"];
+  installationId: string;
+  lineId: string;
+  now: string;
+  limit: number;
+  after?: DeliveryRecoveryCursor;
+}
+
+export interface DeliveryRecoveryPage {
+  deliveries: readonly RecoverableDeliveryOperationRecord[];
+  next?: DeliveryRecoveryCursor;
+}
+
+export interface RecoverableDeliveryOperationStorePort extends Omit<
+  DeliveryOperationStorePort,
+  "complete" | "markDispatched" | "read"
+> {
+  acquireDispatch(
+    operation: PhotonPresentationOperation,
+    expectedVersion: number,
+    ownerId: string,
+    now: string,
+    leaseExpiresAt: string,
+  ): Promise<RecoverableDeliveryOperationRecord | undefined>;
+  renewDispatch(
+    operation: PhotonPresentationOperation,
+    claim: DeliveryDispatchClaim,
+    now: string,
+    leaseExpiresAt: string,
+  ): Promise<RecoverableDeliveryOperationRecord | undefined>;
+  expireDispatch(
+    operation: PhotonPresentationOperation,
+    claim: DeliveryDispatchClaim,
+    now: string,
+  ): Promise<RecoverableDeliveryOperationRecord | undefined>;
+  recordConfirmedPart(
+    operation: PhotonPresentationOperation,
+    claim: DeliveryDispatchClaim,
+    logicalPartIndex: number,
+    part: MessagePartReference,
+    now: string,
+  ): Promise<RecoverableDeliveryOperationRecord | undefined>;
+  complete(
+    operation: PhotonPresentationOperation,
+    claim: DeliveryDispatchClaim,
+    outcome: PhotonOperationOutcome,
+    now: string,
+  ): Promise<boolean>;
+  discoverRecoverable(query: DeliveryRecoveryQuery): Promise<DeliveryRecoveryPage>;
+  read(operation: PhotonPresentationOperation): Promise<RecoverableDeliveryOperationRecord | undefined>;
 }
 
 export interface TextStreamSessionRecord {
@@ -279,6 +409,70 @@ export interface PhotonDeliveryDispatch<Operation extends PhotonPresentationOper
   operation: Operation;
   logicalPartIndexes: readonly number[];
   confirmedParts: readonly ConfirmedMessagePart[];
+}
+
+export interface PhotonDeliveryProgressPort {
+  assertCanContinue(
+    operation: PhotonPresentationOperation,
+    claim: DeliveryDispatchClaim,
+    logicalPartIndex: number,
+    now: string,
+  ): Promise<void>;
+  recordConfirmedPart(
+    operation: PhotonPresentationOperation,
+    claim: DeliveryDispatchClaim,
+    logicalPartIndex: number,
+    part: MessagePartReference,
+    now: string,
+  ): Promise<void>;
+}
+
+export type PhotonProviderMode = "spectrum" | "advanced";
+
+export type PhotonLineCredentialResolution =
+  | {
+      kind: "available";
+      installationId: string;
+      lineId: string;
+      mode: PhotonProviderMode;
+      bearerToken: string;
+      expiresAt?: string;
+      provenance: "persisted-line-assignment" | "explicit-runtime-input";
+      renewal: "automatic" | "external";
+    }
+  | { kind: "unavailable"; code: string }
+  | { kind: "expired"; code: string };
+
+export interface PhotonLineCredentialResolver {
+  resolve(input: {
+    installationId: string;
+    lineId: string;
+    mode: PhotonProviderMode;
+    now: string;
+  }): Promise<PhotonLineCredentialResolution>;
+}
+
+export interface PhotonLineOwnerKey {
+  installationId: string;
+  lineId: string;
+}
+
+export interface PhotonLineOwnerClaim {
+  key: PhotonLineOwnerKey;
+  ownerId: string;
+  fence: number;
+  leaseExpiresAt: string;
+}
+
+export interface PhotonLineOwnerStore {
+  claim(
+    key: PhotonLineOwnerKey,
+    ownerId: string,
+    now: string,
+    leaseExpiresAt: string,
+  ): Promise<PhotonLineOwnerClaim | undefined>;
+  renew(claim: PhotonLineOwnerClaim, now: string, leaseExpiresAt: string): Promise<PhotonLineOwnerClaim | undefined>;
+  release(claim: PhotonLineOwnerClaim, now: string): Promise<boolean>;
 }
 
 export interface SpectrumProviderClientPort {

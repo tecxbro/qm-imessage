@@ -1,0 +1,230 @@
+{
+  "schemaVersion": 1,
+  "reviewedInput": {
+    "branch": "integration-1",
+    "commit": "4b1ce5a8326979cb8cf59eb966df4906a901dd38"
+  },
+  "repairBaseResolution": {
+    "record": "post-commit coordinator dispatch",
+    "recordPath": "cp1-repair-dispatch.json",
+    "resolveFrom": "git-common-dir",
+    "schemaVersion": 1,
+    "field": "repairBaseCommit",
+    "format": "40 lowercase hexadecimal characters",
+    "requiredForEveryRepair": true,
+    "requiredFields": ["schemaVersion", "reviewedInput", "repairBaseCommit", "repairs"]
+  },
+  "coordinator": {
+    "branch": "cp1/coordinator",
+    "worktree": "worktrees/cp1-coordinator",
+    "ownedPaths": [
+      "plugins/chassis/src/photon-state.ts",
+      "plugins/chassis/src/photon-state/db.ts",
+      "plugins/chassis/src/photon-state/shared.ts",
+      "plugins/chassis/src/photon-state-schema.ts",
+      "plugins/chassis/src/photon-state-records.ts",
+      "plugins/photon/src/ports.ts",
+      "plugins/photon/src/state.ts",
+      "plugins/photon/test/fixtures.ts",
+      "plugins/chassis/src/photon-contract.ts",
+      "src/types.ts",
+      "package.json",
+      ".github/workflows/cicd.yml",
+      "test/helpers/cp1-postgres.ts",
+      "test/photon-state-postgres.test.ts",
+      "test/imessage-foundation-ownership.test.ts",
+      "docs/imessage/repairs/contract.md",
+      "docs/imessage/repairs/ownership.json",
+      "docs/imessage/contracts.md",
+      "docs/imessage/architecture.md",
+      "docs/imessage/workflow.md",
+      "docs/imessage/ownership.json",
+      "docs/imessage/parity.json",
+      "docs/imessage/integration/checkpoint-1.md",
+      "docs/imessage/integration/checkpoint-1-input.json",
+      "docs/imessage/integration/checkpoint-1.json"
+    ],
+    "migrationReservations": {
+      "photon/state/0002": ["coordinator"]
+    }
+  },
+  "repairs": {
+    "r01": {
+      "base": "repairBaseCommit",
+      "branch": "cp1/r01",
+      "worktree": "worktrees/cp1-r01",
+      "ownedPaths": [
+        "plugins/photon/src/setup/installation.ts",
+        "plugins/photon/src/setup/installation-store.ts",
+        "plugins/chassis/src/secret-box.ts",
+        "src/connectors/connector-client-store.ts",
+        "plugins/photon/test/installation-store.test.ts",
+        "docs/imessage/repairs/r01.md"
+      ]
+    },
+    "r02": {
+      "base": "repairBaseCommit",
+      "branch": "cp1/r02",
+      "worktree": "worktrees/cp1-r02",
+      "ownedPaths": [
+        "plugins/chassis/src/photon-state/bindings.ts",
+        "test/photon-state-bindings.test.ts",
+        "docs/imessage/repairs/r02.md"
+      ]
+    },
+    "r03": {
+      "base": "repairBaseCommit",
+      "branch": "cp1/r03",
+      "worktree": "worktrees/cp1-r03",
+      "ownedPaths": [
+        "plugins/chassis/src/photon-state/receipts.ts",
+        "plugins/photon/src/provider/recovery.ts",
+        "test/photon-state-receipt-recovery.test.ts",
+        "plugins/photon/test/provider-recovery.test.ts",
+        "docs/imessage/repairs/r03.md"
+      ]
+    },
+    "r04": {
+      "base": "repairBaseCommit",
+      "branch": "cp1/r04",
+      "worktree": "worktrees/cp1-r04",
+      "ownedPaths": [
+        "plugins/chassis/src/photon-state/deliveries.ts",
+        "test/photon-state-delivery-recovery.test.ts",
+        "docs/imessage/repairs/r04.md"
+      ]
+    },
+    "r05": {
+      "base": "repairBaseCommit",
+      "branch": "cp1/r05",
+      "worktree": "worktrees/cp1-r05",
+      "ownedPaths": [
+        "src/api/photon-authorization.ts",
+        "src/api/photon-core-client.ts",
+        "test/photon-original-session-authorization.test.ts",
+        "docs/imessage/repairs/r05.md"
+      ]
+    },
+    "r06": {
+      "base": "repairBaseCommit",
+      "branch": "cp1/r06",
+      "worktree": "worktrees/cp1-r06",
+      "ownedPaths": [
+        "src/api/capability-destination.ts",
+        "test/capability-destination-photon.test.ts",
+        "docs/imessage/repairs/r06.md"
+      ]
+    },
+    "r07": {
+      "base": "repairBaseCommit",
+      "branch": "cp1/r07",
+      "worktree": "worktrees/cp1-r07",
+      "ownedPaths": ["src/api/routes/reach.ts", "test/reach-photon-preflight.test.ts", "docs/imessage/repairs/r07.md"]
+    },
+    "r08": {
+      "base": "repairBaseCommit",
+      "branch": "cp1/r08",
+      "worktree": "worktrees/cp1-r08",
+      "ownedPaths": [
+        "src/delivery/delivery-store.ts",
+        "src/delivery/postgres-delivery-store.ts",
+        "test/photon-delivery-backlinks.test.ts",
+        "test/postgres-photon-delivery-backlinks.test.ts",
+        "docs/imessage/repairs/r08.md"
+      ]
+    },
+    "r09": {
+      "base": "repairBaseCommit",
+      "branch": "cp1/r09",
+      "worktree": "worktrees/cp1-r09",
+      "ownedPaths": [
+        "src/api/routes/photon.ts",
+        "src/api/routes/index.ts",
+        "src/api/user-scoped-routes.ts",
+        "src/api/deps.ts",
+        "test/photon-route-registration.test.ts",
+        "docs/imessage/repairs/r09.md"
+      ]
+    },
+    "r10": {
+      "base": "repairBaseCommit",
+      "branch": "cp1/r10",
+      "worktree": "worktrees/cp1-r10",
+      "ownedPaths": [
+        "plugins/photon/src/provider/credentials.ts",
+        "plugins/photon/test/credentials.test.ts",
+        "docs/imessage/repairs/r10.md"
+      ]
+    },
+    "r11": {
+      "base": "repairBaseCommit",
+      "branch": "cp1/r11",
+      "worktree": "worktrees/cp1-r11",
+      "ownedPaths": [
+        "plugins/photon/src/provider/clients.ts",
+        "plugins/photon/test/multipart-progress.test.ts",
+        "docs/imessage/repairs/r11.md"
+      ]
+    },
+    "r12": {
+      "base": "repairBaseCommit",
+      "branch": "cp1/r12",
+      "worktree": "worktrees/cp1-r12",
+      "ownedPaths": [
+        "plugins/web-ui/server/index.ts",
+        "plugins/web-ui/src/main.ts",
+        "plugins/web-ui/src/shell.ts",
+        "plugins/web-ui/src/photon/registry.ts",
+        "plugins/web-ui/test/photon-registration.test.ts",
+        "docs/imessage/repairs/r12.md"
+      ]
+    },
+    "r13": {
+      "base": "repairBaseCommit",
+      "branch": "cp1/r13",
+      "worktree": "worktrees/cp1-r13",
+      "ownedPaths": [
+        "scripts/imessage-verify-lane.mjs",
+        "scripts/imessage-worktrees.mjs",
+        "scripts/imessage-corrections.mjs",
+        "test/imessage-repair-tooling.test.ts",
+        "docs/imessage/repairs/r13.md"
+      ]
+    },
+    "r14": {
+      "base": "repairBaseCommit",
+      "branch": "cp1/r14",
+      "worktree": "worktrees/cp1-r14",
+      "ownedPaths": [
+        "plugins/photon/src/provider/connection.ts",
+        "plugins/photon/src/provider/line-owner.ts",
+        "plugins/chassis/src/photon-state/line-owner.ts",
+        "plugins/photon/test/line-owner.test.ts",
+        "test/photon-line-owner-postgres.test.ts",
+        "docs/imessage/repairs/r14.md"
+      ]
+    }
+  },
+  "joins": {
+    "r15": {
+      "dependsOn": ["r01", "r02", "r03", "r04", "r05", "r06", "r07", "r08", "r09", "r10", "r11", "r12", "r13", "r14"],
+      "ownedPaths": [
+        "src/wiring.ts",
+        "src/api/app-types.ts",
+        "src/api/photon-composition.ts",
+        "test/photon-core-composition.test.ts",
+        "docs/imessage/repairs/r15.md"
+      ]
+    },
+    "r16": {
+      "dependsOn": ["r01", "r03", "r04", "r09", "r10", "r11", "r14", "r15"],
+      "ownedPaths": [
+        "plugins/photon/src/main.ts",
+        "plugins/photon/src/composition.ts",
+        "plugins/photon/src/http.ts",
+        "plugins/photon/test/runtime-composition.test.ts",
+        "docs/imessage/repairs/r16.md"
+      ]
+    }
+  }
+}

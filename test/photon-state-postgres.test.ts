@@ -7,6 +7,8 @@ import {
   PHOTON_ADAPTER_DATABASE_ROLE,
   PHOTON_CORE_LINK_DATABASE_ROLE,
   PHOTON_STATE_MIGRATION,
+  PHOTON_STATE_MIGRATIONS,
+  PHOTON_STATE_REPAIR_MIGRATION,
   PHOTON_STATE_SCHEMA,
 } from "../plugins/chassis/src/photon-state-schema.ts";
 import type {
@@ -26,10 +28,12 @@ import {
   textOperation,
 } from "../plugins/photon/test/fixtures.ts";
 import { applyPgMigrations, definePgMigration, PG_MIGRATIONS_TABLE } from "../src/persistence/pg-pool.ts";
+import { cp1PostgresSkip, createCp1PostgresHarness, type Cp1PostgresHarness } from "./helpers/cp1-postgres.ts";
 
-const databaseUrl = process.env.DATABASE_URL;
-const skip = databaseUrl ? false : "set DATABASE_URL to a real PostgreSQL database";
-const admin = databaseUrl ? new pg.Pool({ connectionString: databaseUrl }) : undefined;
+const databaseUrl = process.env.CP1_POSTGRES_ADMIN_URL;
+const skip = cp1PostgresSkip("Photon state PostgreSQL tests", databaseUrl, process.env.CP1_REQUIRE_POSTGRES === "1");
+let harness: Cp1PostgresHarness | undefined;
+let admin: pg.Pool | undefined;
 let stores: PhotonStateStores;
 
 function database(pool: pg.Pool) {
@@ -97,31 +101,60 @@ function providerPart(messageId: string, logicalPartIndex: number, partIndex = 0
 }
 
 before(async () => {
-  if (!admin) return;
-  await admin.query(`DROP SCHEMA IF EXISTS ${PHOTON_STATE_SCHEMA} CASCADE`);
-  await admin.query("CREATE TABLE IF NOT EXISTS qm_photon_unrelated_business(id TEXT PRIMARY KEY)");
-  const ledger = await admin.query("SELECT to_regclass($1) AS name", [PG_MIGRATIONS_TABLE]);
-  if (ledger.rows[0]?.name)
-    await admin.query(`DELETE FROM ${PG_MIGRATIONS_TABLE} WHERE id = $1`, [PHOTON_STATE_MIGRATION.id]);
-  await applyPgMigrations(admin, [definePgMigration(PHOTON_STATE_MIGRATION.id, PHOTON_STATE_MIGRATION.statements)]);
+  if (!databaseUrl) return;
+  harness = await createCp1PostgresHarness(databaseUrl);
+  admin = harness.pool;
+  await admin.query("CREATE TABLE qm_photon_unrelated_business(id TEXT PRIMARY KEY)");
+  await harness.withClusterLock(async () => {
+    await applyPgMigrations(admin!, [definePgMigration(PHOTON_STATE_MIGRATION.id, PHOTON_STATE_MIGRATION.statements)]);
+    const legacyStores = createPostgresPhotonStateStores(database(admin!));
+    const binding = {
+      conversation: { ...chats[0], conversationId: "migration-upgrade-conversation" },
+      qmSessionId: "migration-upgrade-session",
+      resourceRevision: "migration-upgrade-revision",
+    };
+    if ((await legacyStores.chatSessions.bind(binding)) !== "bound") {
+      throw new Error("failed to seed the pre-0002 chat-session binding");
+    }
+    if ((await legacyStores.deliveries.reserve(multipartOperation("migration-upgrade"))) !== "reserved") {
+      throw new Error("failed to seed the pre-0002 delivery operation");
+    }
+    await applyPgMigrations(admin!, [
+      definePgMigration(PHOTON_STATE_REPAIR_MIGRATION.id, PHOTON_STATE_REPAIR_MIGRATION.statements),
+    ]);
+  });
   stores = createPostgresPhotonStateStores(database(admin));
 });
 
 after(async () => {
-  if (!admin) return;
-  await admin.query(`DROP SCHEMA IF EXISTS ${PHOTON_STATE_SCHEMA} CASCADE`);
-  await admin.query("DROP TABLE IF EXISTS qm_photon_unrelated_business");
-  await admin.query(`DELETE FROM ${PG_MIGRATIONS_TABLE} WHERE id = $1`, [PHOTON_STATE_MIGRATION.id]);
-  await admin.end();
+  await harness?.close();
 });
 
 test("migration replay is stable and database roles enforce adapter and core-link boundaries", { skip }, async () => {
-  await applyPgMigrations(admin!, [definePgMigration(PHOTON_STATE_MIGRATION.id, PHOTON_STATE_MIGRATION.statements)]);
+  await applyPgMigrations(
+    admin!,
+    PHOTON_STATE_MIGRATIONS.map((migration) => definePgMigration(migration.id, migration.statements)),
+  );
   const tables = await admin!.query(
     "SELECT table_name FROM information_schema.tables WHERE table_schema = $1 ORDER BY table_name",
     [PHOTON_STATE_SCHEMA],
   );
-  assert.equal(tables.rows.length, 15);
+  assert.equal(tables.rows.length, 16);
+  const upgradedBinding = await admin!.query<{ binding_version: string }>(
+    `SELECT binding_version
+       FROM ${PHOTON_STATE_SCHEMA}.chat_session_bindings
+      WHERE conversation_id = 'migration-upgrade-conversation'`,
+  );
+  assert.deepEqual(upgradedBinding.rows, [{ binding_version: "1" }]);
+  const upgradedDelivery = await admin!.query<{
+    dispatch_owner_id: string | null;
+    dispatch_lease_expires_at: string | null;
+  }>(
+    `SELECT dispatch_owner_id, dispatch_lease_expires_at
+       FROM ${PHOTON_STATE_SCHEMA}.delivery_operations
+      WHERE idempotency_key = 'logical-migration-upgrade'`,
+  );
+  assert.deepEqual(upgradedDelivery.rows, [{ dispatch_owner_id: null, dispatch_lease_expires_at: null }]);
   const roles = await admin!.query(
     `SELECT rolcanlogin, rolsuper, rolcreatedb, rolcreaterole, rolreplication, rolbypassrls
        FROM pg_roles WHERE rolname = ANY($1::text[])`,
@@ -156,6 +189,21 @@ test("migration replay is stable and database roles enforce adapter and core-lin
     await coreLink.query(`SET ROLE ${PHOTON_CORE_LINK_DATABASE_ROLE}`);
     await coreLink.query(`SELECT 1 FROM ${PHOTON_STATE_SCHEMA}.chat_session_bindings LIMIT 1`);
     await coreLink.query(`SELECT 1 FROM ${PHOTON_STATE_SCHEMA}.message_bindings LIMIT 1`);
+    await coreLink.query(`SELECT 1 FROM ${PHOTON_STATE_SCHEMA}.action_bindings LIMIT 1`);
+    await coreLink.query(`UPDATE ${PHOTON_STATE_SCHEMA}.action_bindings SET consumed_at = consumed_at WHERE false`);
+    await assert.rejects(
+      coreLink.query(`UPDATE ${PHOTON_STATE_SCHEMA}.action_bindings SET record = record WHERE false`),
+      /permission denied/u,
+    );
+    await assert.rejects(
+      coreLink.query(
+        `INSERT INTO ${PHOTON_STATE_SCHEMA}.action_bindings(
+           provider, installation_id, line_id, conversation_id, binding_id,
+           expires_at, record_version, record
+         ) VALUES ('spectrum', 'installation', 'line', 'conversation', 'binding', now(), 1, '{}'::jsonb)`,
+      ),
+      /permission denied/u,
+    );
     await assert.rejects(coreLink.query(`SELECT 1 FROM ${PHOTON_STATE_SCHEMA}.installations`), /permission denied/u);
   } finally {
     await coreLink.query("RESET ROLE");
@@ -426,7 +474,7 @@ test("ambiguous delivery remains reconciliation-only and survives a replacement 
     undefined,
   );
 
-  const replacementPool = new pg.Pool({ connectionString: databaseUrl! });
+  const replacementPool = new pg.Pool({ connectionString: harness!.connectionString });
   try {
     const replacement = createPostgresPhotonStateStores(database(replacementPool));
     assert.equal((await replacement.deliveries.read(operation))?.state, "ambiguous");
@@ -603,7 +651,7 @@ test(
     assert.equal((await stores.actions.consume(consumption))?.bindingId, action.bindingId);
     assert.equal(await stores.actions.consume(consumption), undefined);
 
-    const replacementPool = new pg.Pool({ connectionString: databaseUrl! });
+    const replacementPool = new pg.Pool({ connectionString: harness!.connectionString });
     try {
       const replacement = createPostgresPhotonStateStores(database(replacementPool));
       assert.equal((await replacement.installations.read("installation-record"))?.ownerRevision, "owner-2");

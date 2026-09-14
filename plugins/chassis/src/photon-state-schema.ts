@@ -241,3 +241,46 @@ export const PHOTON_STATE_MIGRATION: PhotonStateMigrationDefinition = {
       TO ${PHOTON_CORE_LINK_DATABASE_ROLE}`,
   ],
 };
+
+export const PHOTON_STATE_REPAIR_MIGRATION: PhotonStateMigrationDefinition = {
+  id: "photon/state/0002",
+  statements: [
+    `ALTER TABLE ${PHOTON_STATE_SCHEMA}.chat_session_bindings
+      ADD COLUMN binding_version BIGINT NOT NULL DEFAULT 1
+      CHECK (binding_version >= 1 AND binding_version <= 9007199254740991)`,
+    `ALTER TABLE ${PHOTON_STATE_SCHEMA}.delivery_operations
+      ADD COLUMN dispatch_owner_id TEXT,
+      ADD COLUMN dispatch_lease_expires_at TIMESTAMPTZ,
+      ADD CONSTRAINT delivery_operations_dispatch_claim_complete CHECK (
+        (dispatch_owner_id IS NULL AND dispatch_lease_expires_at IS NULL)
+        OR (dispatch_owner_id IS NOT NULL AND dispatch_lease_expires_at IS NOT NULL)
+      )`,
+    `CREATE INDEX IF NOT EXISTS delivery_operations_recovery
+      ON ${PHOTON_STATE_SCHEMA}.delivery_operations(
+        provider, installation_id, line_id, updated_at, conversation_id, idempotency_key
+      )
+      WHERE state = 'reserved' OR state = 'dispatched'`,
+    `CREATE TABLE ${PHOTON_STATE_SCHEMA}.line_owners(
+      installation_id TEXT NOT NULL,
+      line_id TEXT NOT NULL,
+      owner_id TEXT NOT NULL,
+      fence BIGINT NOT NULL CHECK (fence > 0 AND fence <= 9007199254740991),
+      expires_at TIMESTAMPTZ NOT NULL,
+      PRIMARY KEY(installation_id, line_id)
+    )`,
+    `REVOKE ALL ON ${PHOTON_STATE_SCHEMA}.line_owners FROM PUBLIC`,
+    `GRANT SELECT, INSERT, UPDATE ON ${PHOTON_STATE_SCHEMA}.line_owners TO ${PHOTON_ADAPTER_DATABASE_ROLE}`,
+    `GRANT SELECT, INSERT, UPDATE ON
+      ${PHOTON_STATE_SCHEMA}.chat_session_bindings,
+      ${PHOTON_STATE_SCHEMA}.delivery_operations,
+      ${PHOTON_STATE_SCHEMA}.delivery_parts
+      TO ${PHOTON_ADAPTER_DATABASE_ROLE}`,
+    `GRANT SELECT ON ${PHOTON_STATE_SCHEMA}.action_bindings TO ${PHOTON_CORE_LINK_DATABASE_ROLE}`,
+    `GRANT UPDATE(consumed_at) ON ${PHOTON_STATE_SCHEMA}.action_bindings TO ${PHOTON_CORE_LINK_DATABASE_ROLE}`,
+  ],
+};
+
+export const PHOTON_STATE_MIGRATIONS: readonly PhotonStateMigrationDefinition[] = [
+  PHOTON_STATE_MIGRATION,
+  PHOTON_STATE_REPAIR_MIGRATION,
+];

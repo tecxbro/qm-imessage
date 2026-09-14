@@ -175,6 +175,8 @@ jobs:
       - name: Postgres-backed tests (durability + cross-process)
         env:
           DATABASE_URL: postgres://postgres:postgres@localhost:5432/qm
+          CP1_POSTGRES_ADMIN_URL: postgres://postgres:postgres@localhost:5432/qm
+          CP1_REQUIRE_POSTGRES: "1"
         run: npm run test:pg
       - name: Model registry cross-process tests
         env:
