@@ -7,6 +7,7 @@ import { hasParentPathSegment } from "../../sandbox/sandbox.ts";
 import { resolveEnvironmentId } from "../../environments/environment-store.ts";
 import { errMessage } from "../../util/errors.ts";
 import { scopeId, type OutgoingAttachment } from "../../types.ts";
+import { isPhotonDestination } from "../../surfaces/photon-destinations.ts";
 
 type ReachBody = {
   recipient?: unknown;
@@ -58,6 +59,10 @@ async function reachNow(ctx: ApiCtx): Promise<void> {
   const rate = await deps.rateLimiter?.check(`reach:${capability.actorId}`);
   if (rate && !rate.allowed)
     return sendJson(res, 429, { error: "rate_limited", message: "too many outbound actions; try again later" });
+  const currentPhoton = isPhotonDestination(capability.destination) ? capability.destination : undefined;
+  if (capability.destination?.type === "photon" && currentPhoton === undefined) {
+    return sendJson(res, 403, { error: "forbidden", message: "invalid Photon destination" });
+  }
   const b = (isObj(body) ? body : {}) as ReachBody;
   let text: string | undefined;
   if (typeof b.text === "string") text = b.text;
@@ -74,6 +79,12 @@ async function reachNow(ctx: ApiCtx): Promise<void> {
       });
     }
     threadTs = b.threadTs.trim();
+    if (currentPhoton !== undefined) {
+      return sendJson(res, 400, {
+        error: "bad_request",
+        message: "threadTs is a Slack reference and cannot scope an iMessage message",
+      });
+    }
     if (react || del) {
       return sendJson(res, 400, {
         error: "bad_request",
@@ -111,7 +122,8 @@ async function reachNow(ctx: ApiCtx): Promise<void> {
         "react/delete targets a message in a channel, group DM, or this conversation — name a channel or participants, not a recipient",
     });
   }
-  if (!del && !hasNamedTarget) {
+  const currentPhotonReaction = react !== undefined && currentPhoton !== undefined;
+  if (!del && !hasNamedTarget && !currentPhotonReaction) {
     return sendJson(res, 400, {
       error: "bad_request",
       message: react
@@ -130,6 +142,7 @@ async function reachNow(ctx: ApiCtx): Promise<void> {
     }
     const pre = await app.resolveReachTarget(
       {
+        ...(currentPhoton ? { surface: "photon" as const } : {}),
         ...(typeof b.recipient === "string" ? { recipient: b.recipient } : {}),
         ...(typeof b.channel === "string" ? { channel: b.channel } : {}),
         ...(Array.isArray(b.participants)
@@ -138,7 +151,8 @@ async function reachNow(ctx: ApiCtx): Promise<void> {
       },
       capability.actorId,
     );
-    const openedAtSend = !pre.ok && pre.error === "group_not_found" && Array.isArray(b.participants);
+    const openedAtSend =
+      currentPhoton === undefined && !pre.ok && pre.error === "group_not_found" && Array.isArray(b.participants);
     if (!pre.ok && !openedAtSend) {
       return sendJson(res, pre.status, {
         error: pre.error,
