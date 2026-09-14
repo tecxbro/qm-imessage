@@ -100,19 +100,13 @@ test("runtime exposes only stores, closes once, and rejects use after shutdown",
   await assert.rejects(runtime.stores.installations.read("installation-a"), /runtime is closed/u);
 });
 
-test("serialized installation records are versioned and reject plaintext secrets", () => {
+test("serialized installation records retain only ciphertext metadata", () => {
   const valid = {
-    installation: { installationId: "installation-a", projectId: "project-a" },
-    status: {
-      state: "connected" as const,
-      installationId: "installation-a",
-      projectId: "project-a",
-      lines: [{ lineId: "line-a", maskedAddress: "+1•••0001" }],
-      management: { credentialPath: "secret://photon/management" },
-      runtime: { credentialCiphertext: "ciphertext" },
-    },
+    installationId: "installation-a",
     ownerRevision: "owner-revision-1",
     version: 1,
+    wrappingKeyId: "installation-key-1",
+    ciphertext: "ciphertext",
   };
   const serialized = serializePhotonStateRecord("installation", valid);
   assert.deepEqual(parsePhotonStateRecord("installation", serialized), valid);
@@ -120,8 +114,8 @@ test("serialized installation records are versioned and reject plaintext secrets
     () =>
       serializePhotonStateRecord("installation", {
         ...valid,
-        status: { ...valid.status, management: { accessToken: "plaintext" } },
-      }),
+        status: { management: { accessToken: "plaintext" } },
+      } as never),
     /unsupported fields/u,
   );
   assert.throws(
@@ -132,16 +126,16 @@ test("serialized installation records are versioned and reject plaintext secrets
     () =>
       serializePhotonStateRecord("installation", {
         ...valid,
-        status: { ...valid.status, state: "unknown" } as never,
+        wrappingKeyId: "",
       }),
-    /state is unsupported/u,
+    /non-empty string/u,
   );
   assert.throws(
     () =>
       serializePhotonStateRecord("installation", {
         ...valid,
-        status: { ...valid.status, userCode: "cross-state" } as never,
+        version: 0,
       }),
-    /state-incompatible fields/u,
+    /safe integer/u,
   );
 });

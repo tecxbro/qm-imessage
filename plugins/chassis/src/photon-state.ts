@@ -4,12 +4,13 @@ import type {
   AttachmentRecord,
   AttachmentStorePort,
   ChatSessionBindingStorePort,
-  DeliveryOperationStorePort,
-  EventReceiptStorePort,
-  InstallationStorePort,
   MessageBindingStorePort,
+  PhotonInstallationCiphertextStore,
+  PhotonLineOwnerStore,
   PollReferenceStorePort,
   PublicCardHandleStorePort,
+  RecoverableEventReceiptStorePort,
+  RecoverableDeliveryOperationStorePort,
   TextStreamSessionRecord,
   TextStreamSessionStorePort,
   VerifiedAddressChallenge,
@@ -22,6 +23,7 @@ import { createPhotonBindingStores } from "./photon-state/bindings.ts";
 import { createPhotonDeliveryStore } from "./photon-state/deliveries.ts";
 import type { PhotonStateDatabase, PhotonStateTransaction } from "./photon-state/db.ts";
 import { createPhotonReceiptStore } from "./photon-state/receipts.ts";
+import { createPhotonLineOwnerStore } from "./photon-state/line-owner.ts";
 import {
   PHOTON_STATE_RECORD_VERSION,
   canonicalTimestamp,
@@ -39,21 +41,22 @@ import {
 export type { PhotonStateDatabase, PhotonStateQueryResult, PhotonStateTransaction } from "./photon-state/db.ts";
 
 export interface PhotonStateStores {
-  installations: InstallationStorePort;
+  installations: PhotonInstallationCiphertextStore;
   verifiedAddresses: VerifiedAddressStorePort;
   chatSessions: ChatSessionBindingStorePort;
   messages: MessageBindingStorePort;
   attachments: AttachmentStorePort;
-  receipts: EventReceiptStorePort;
-  deliveries: DeliveryOperationStorePort;
+  receipts: RecoverableEventReceiptStorePort;
+  deliveries: RecoverableDeliveryOperationStorePort;
   textStreams: TextStreamSessionStorePort;
   polls: PollReferenceStorePort;
   cards: PublicCardHandleStorePort;
   actions: ActionBindingStorePort;
+  lineOwners: PhotonLineOwnerStore;
 }
 
 export function createPostgresPhotonStateStores(database: PhotonStateDatabase): PhotonStateStores {
-  const installations: InstallationStorePort = {
+  const installations: PhotonInstallationCiphertextStore = {
     async read(installationId) {
       nonempty(installationId, "installationId");
       return selectRecord(
@@ -71,13 +74,13 @@ export function createPostgresPhotonStateStores(database: PhotonStateDatabase): 
            installation_id, entity_version, record_version, record
          ) VALUES ($1, $2, $3, $4::jsonb)
          ON CONFLICT (installation_id) DO NOTHING`,
-        [record.installation.installationId, record.version, PHOTON_STATE_RECORD_VERSION, serialized],
+        [record.installationId, record.version, PHOTON_STATE_RECORD_VERSION, serialized],
       );
       return resultCount(result) === 1;
     },
     async compareAndSet(installationId, expectedVersion, next) {
       const serialized = encoded("installation", next);
-      if (next.installation.installationId !== installationId || next.version !== expectedVersion + 1) return false;
+      if (next.installationId !== installationId || next.version !== expectedVersion + 1) return false;
       const result = await database.query(
         `UPDATE ${PHOTON_STATE_SCHEMA}.installations
             SET entity_version = $3, record_version = $4, record = $5::jsonb
@@ -544,6 +547,7 @@ export function createPostgresPhotonStateStores(database: PhotonStateDatabase): 
     polls,
     cards,
     actions,
+    lineOwners: createPhotonLineOwnerStore(database),
   };
 }
 

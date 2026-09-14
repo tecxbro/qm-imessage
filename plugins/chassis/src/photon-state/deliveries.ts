@@ -1,7 +1,6 @@
 import type {
   DeliveryDispatchClaim,
   DeliveryOperationRecord,
-  DeliveryOperationStorePort,
   RecoverableDeliveryOperationRecord,
   RecoverableDeliveryOperationStorePort,
 } from "../../../photon/src/ports.ts";
@@ -29,8 +28,6 @@ import {
   resultCount,
   sameJson,
 } from "./shared.ts";
-
-type TransitionalDeliveryOperationStorePort = RecoverableDeliveryOperationStorePort & DeliveryOperationStorePort;
 
 function partId(operation: PhotonPresentationOperation, index: number): string {
   return canonicalJson([...operationValues(operation), index]);
@@ -265,8 +262,8 @@ async function loadDelivery(
   return dispatchClaim === undefined ? persisted : { ...persisted, dispatchClaim };
 }
 
-export function createPhotonDeliveryStore(database: PhotonStateDatabase): TransitionalDeliveryOperationStorePort {
-  const deliveries: TransitionalDeliveryOperationStorePort = {
+export function createPhotonDeliveryStore(database: PhotonStateDatabase): RecoverableDeliveryOperationStorePort {
+  const deliveries: RecoverableDeliveryOperationStorePort = {
     async reserve(operation) {
       const parts = Array.from({ length: plannedPartCount(operation) }, (_, partIndex) => ({
         partId: partId(operation, partIndex),
@@ -462,9 +459,6 @@ export function createPhotonDeliveryStore(database: PhotonStateDatabase): Transi
         return next;
       });
     },
-    async markDispatched() {
-      throw new Error("delivery dispatch requires an owner and lease");
-    },
     async retry(operation, expectedVersion) {
       return database.transaction(async (transaction) => {
         const current = await loadDelivery(transaction, operation, true);
@@ -499,11 +493,10 @@ export function createPhotonDeliveryStore(database: PhotonStateDatabase): Transi
     },
     async complete(
       operation: PhotonPresentationOperation,
-      claim: DeliveryDispatchClaim | number,
+      claim: DeliveryDispatchClaim,
       outcome: PhotonOperationOutcome,
-      now?: string,
+      now: string,
     ) {
-      if (typeof claim === "number" || now === undefined) return false;
       nonempty(claim.ownerId, "claim.ownerId");
       canonicalTimestamp(claim.leaseExpiresAt, "claim.leaseExpiresAt");
       canonicalTimestamp(now, "now");

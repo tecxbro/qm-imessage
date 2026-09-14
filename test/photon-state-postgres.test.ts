@@ -18,6 +18,8 @@ import type {
   PhotonPresentationOperation,
 } from "../plugins/chassis/src/photon-contract.ts";
 import { createPhotonStateDatabase, type PhotonStatePool } from "../plugins/photon/src/state.ts";
+import { createEncryptedPhotonInstallationStore } from "../plugins/photon/src/setup/installation-store.ts";
+import { decryptSecret, deriveConnectorKey, encryptSecret } from "../plugins/chassis/src/secret-box.ts";
 import {
   chats,
   competingActions,
@@ -386,14 +388,24 @@ test("multipart retry retains exact confirmed children and dispatches only unres
     "conflict",
   );
   assert.equal(
-    await stores.deliveries.markDispatched(
+    await stores.deliveries.acquireDispatch(
       { ...original, operationId: "operation-swapped", attemptId: "attempt-swapped" },
       1,
+      "worker-swapped",
+      "2026-09-10T12:00:00.000Z",
+      "2026-09-10T12:05:00.000Z",
     ),
     undefined,
   );
-  const dispatched = await stores.deliveries.markDispatched(original, 1);
+  const dispatched = await stores.deliveries.acquireDispatch(
+    original,
+    1,
+    "worker-original",
+    "2026-09-10T12:00:00.000Z",
+    "2026-09-10T12:05:00.000Z",
+  );
   assert.equal(dispatched?.dispatchFence, 1);
+  assert.ok(dispatched?.dispatchClaim);
   const retained = providerPart("provider-part-1", 1);
   const failure: Extract<PhotonOperationOutcome, { kind: "failed" }> = {
     kind: "failed",
@@ -402,7 +414,10 @@ test("multipart retry retains exact confirmed children and dispatches only unres
     retryable: true,
     confirmedParts: [retained],
   };
-  assert.equal(await stores.deliveries.complete(original, dispatched!.dispatchFence, failure), true);
+  assert.equal(
+    await stores.deliveries.complete(original, dispatched.dispatchClaim, failure, "2026-09-10T12:01:00.000Z"),
+    true,
+  );
 
   const retry: typeof original = {
     ...original,
@@ -414,7 +429,13 @@ test("multipart retry retains exact confirmed children and dispatches only unres
     reserved?.parts.filter((part) => part.state === "confirmed").map((part) => part.providerPart?.messageId),
     ["provider-part-1"],
   );
-  const redispatched = await stores.deliveries.markDispatched(retry, reserved!.version);
+  const redispatched = await stores.deliveries.acquireDispatch(
+    retry,
+    reserved!.version,
+    "worker-retry",
+    "2026-09-10T12:02:00.000Z",
+    "2026-09-10T12:07:00.000Z",
+  );
   assert.deepEqual(
     redispatched?.parts.filter((part) => part.state === "dispatched").map((part) => part.partIndex),
     [0, 2],
@@ -440,14 +461,21 @@ test("multipart retry retains exact confirmed children and dispatches only unres
     ],
   };
   const beforeContradiction = await stores.deliveries.read(retry);
-  assert.equal(await stores.deliveries.complete(retry, redispatched!.dispatchFence, contradictory), false);
+  assert.ok(redispatched?.dispatchClaim);
+  assert.equal(
+    await stores.deliveries.complete(retry, redispatched.dispatchClaim, contradictory, "2026-09-10T12:03:00.000Z"),
+    false,
+  );
   assert.deepEqual(await stores.deliveries.read(retry), beforeContradiction);
 
   const confirmed: Extract<PhotonOperationOutcome, { kind: "confirmed-message" }> = {
     ...contradictory,
     confirmedParts: [providerPart("provider-part-0", 0), retained, providerPart("provider-part-2", 2)],
   };
-  assert.equal(await stores.deliveries.complete(retry, redispatched!.dispatchFence, confirmed), true);
+  assert.equal(
+    await stores.deliveries.complete(retry, redispatched.dispatchClaim, confirmed, "2026-09-10T12:03:00.000Z"),
+    true,
+  );
   assert.deepEqual(
     (await stores.deliveries.read(retry))?.parts.map((part) => part.providerPart?.messageId),
     ["provider-part-0", "provider-part-1", "provider-part-2"],
@@ -461,14 +489,24 @@ test("ambiguous delivery remains reconciliation-only and survives a replacement 
     idempotencyKey: "logical-ambiguous",
   });
   assert.equal(await stores.deliveries.reserve(operation), "reserved");
-  const dispatched = await stores.deliveries.markDispatched(operation, 1);
+  const dispatched = await stores.deliveries.acquireDispatch(
+    operation,
+    1,
+    "worker-ambiguous",
+    "2026-09-10T12:00:00.000Z",
+    "2026-09-10T12:05:00.000Z",
+  );
+  assert.ok(dispatched?.dispatchClaim);
   const outcome: Extract<PhotonOperationOutcome, { kind: "ambiguous" }> = {
     kind: "ambiguous",
     operation: operationReference(operation),
     reconciliationKey: "reconcile-ambiguous",
     confirmedParts: [],
   };
-  assert.equal(await stores.deliveries.complete(operation, dispatched!.dispatchFence, outcome), true);
+  assert.equal(
+    await stores.deliveries.complete(operation, dispatched.dispatchClaim, outcome, "2026-09-10T12:01:00.000Z"),
+    true,
+  );
   assert.equal(
     await stores.deliveries.retry({ ...operation, operationId: "blind-retry", attemptId: "blind-retry" }, 3),
     undefined,
@@ -513,34 +551,56 @@ test(
         installationId: "installation-record",
         projectId: "project-record",
         lines: [{ lineId: "line-record", maskedAddress: "+1•••0010" }],
-        runtime: { credentialCiphertext: "ciphertext" },
+        management: { accessToken: "private-management-token" },
+        runtime: { projectSecret: "private-project-secret" },
       },
       ownerRevision: "owner-1",
       version: 1,
     };
-    assert.equal(await stores.installations.create(installation), true);
+    const key = deriveConnectorKey("persistent-photon-installation-key", "photon-installation");
+    const encryptedInstallations = createEncryptedPhotonInstallationStore(stores.installations, {
+      wrappingKeyId: "installation-key-1",
+      encrypt: (plaintext) => encryptSecret(plaintext, key),
+      decrypt: (ciphertext, wrappingKeyId) => {
+        if (wrappingKeyId !== "installation-key-1") throw new Error("unknown key");
+        return decryptSecret(ciphertext, key);
+      },
+    });
+    assert.equal(await encryptedInstallations.create(installation), true);
     assert.equal(
-      await stores.installations.compareAndSet("installation-record", 0, { ...installation, version: 2 }),
+      await encryptedInstallations.compareAndSet("installation-record", 0, { ...installation, version: 2 }),
       false,
     );
     assert.equal(
-      await stores.installations.compareAndSet("installation-record", 1, {
+      await encryptedInstallations.compareAndSet("installation-record", 1, {
         ...installation,
         ownerRevision: "owner-2",
         version: 2,
       }),
       true,
     );
+    const rawInstallation = await admin!.query<{ record: { value: Record<string, unknown> } }>(
+      `SELECT record FROM ${PHOTON_STATE_SCHEMA}.installations WHERE installation_id = $1`,
+      ["installation-record"],
+    );
+    assert.deepEqual(Object.keys(rawInstallation.rows[0]!.record.value).sort(), [
+      "ciphertext",
+      "installationId",
+      "ownerRevision",
+      "version",
+      "wrappingKeyId",
+    ]);
+    assert.equal(JSON.stringify(rawInstallation.rows[0]!.record).includes("private-management-token"), false);
+    assert.equal(JSON.stringify(rawInstallation.rows[0]!.record).includes("private-project-secret"), false);
     await assert.rejects(
       stores.installations.create({
-        ...installation,
-        installation: { installationId: "plaintext-installation", projectId: "project-record" },
-        status: {
-          ...installation.status,
-          installationId: "plaintext-installation",
-          management: { accessToken: "plaintext" },
-        },
-      }),
+        installationId: "plaintext-installation",
+        ownerRevision: "owner-1",
+        version: 1,
+        wrappingKeyId: "installation-key-1",
+        ciphertext: "ciphertext",
+        status: { management: { accessToken: "plaintext" } },
+      } as never),
       /unsupported fields/u,
     );
 
@@ -654,7 +714,15 @@ test(
     const replacementPool = new pg.Pool({ connectionString: harness!.connectionString });
     try {
       const replacement = createPostgresPhotonStateStores(database(replacementPool));
-      assert.equal((await replacement.installations.read("installation-record"))?.ownerRevision, "owner-2");
+      const restartedInstallations = createEncryptedPhotonInstallationStore(replacement.installations, {
+        wrappingKeyId: "installation-key-1",
+        encrypt: (plaintext) => encryptSecret(plaintext, key),
+        decrypt: (ciphertext, wrappingKeyId) => {
+          if (wrappingKeyId !== "installation-key-1") throw new Error("unknown key");
+          return decryptSecret(ciphertext, key);
+        },
+      });
+      assert.equal((await restartedInstallations.read("installation-record"))?.ownerRevision, "owner-2");
       assert.deepEqual((await replacement.textStreams.read(streamOperation))?.chunks, ["first chunk"]);
       assert.equal((await replacement.polls.read(chats[0], "poll-a"))?.version, 2);
       assert.equal((await replacement.chatSessions.find(chats[1]))?.qmSessionId, "session-bind");

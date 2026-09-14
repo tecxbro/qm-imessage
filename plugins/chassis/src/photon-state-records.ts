@@ -2,11 +2,9 @@ import {
   PHOTON_PROVIDER_NAMES,
   assertJsonSafe,
   parseActionBinding,
-  parseInstallationReference,
   parseNormalizedPhotonInput,
   parsePhotonOperationOutcome,
   parsePhotonPresentationOperation,
-  projectInstallationForDashboard,
   type ConversationReference,
   type MessagePartReference,
   type PhotonOperationOutcome,
@@ -20,8 +18,8 @@ import type {
   ContiguousCheckpoint,
   DeliveryOperationRecord,
   EventReceipt,
-  InstallationRecord,
   MessageBinding,
+  PhotonInstallationCiphertextRecord,
   PollReference,
   PublicCardHandle,
   TextStreamSessionRecord,
@@ -51,7 +49,7 @@ export interface SerializedPhotonStateRecord<T = unknown> {
 }
 
 type PhotonStateRecordValues = {
-  installation: InstallationRecord;
+  installation: PhotonInstallationCiphertextRecord;
   "verified-address-challenge": VerifiedAddressChallenge;
   "chat-session-binding": ChatSessionBinding;
   "message-binding": MessageBinding;
@@ -196,71 +194,20 @@ function jsonbSafe(value: unknown, label: string): void {
   }
 }
 
-function validateInstallationRecord(value: unknown): InstallationRecord {
-  assertJsonSafe(value, "installationRecord");
-  const input = object(value, "installationRecord");
-  keys(input, ["installation", "status", "ownerRevision", "version"], "installationRecord");
-  const installation = parseInstallationReference(input.installation);
-  const status = object(input.status, "installationRecord.status");
+function validateInstallationRecord(value: unknown): PhotonInstallationCiphertextRecord {
+  assertJsonSafe(value, "photonInstallationCiphertextRecord");
+  const input = object(value, "photonInstallationCiphertextRecord");
   keys(
-    status,
-    [
-      "state",
-      "installationId",
-      "projectId",
-      "lines",
-      "userCode",
-      "verificationUrl",
-      "expiresAt",
-      "safeCode",
-      "management",
-      "managementOrigin",
-      "runtime",
-    ],
-    "installationRecord.status",
+    input,
+    ["installationId", "ownerRevision", "version", "wrappingKeyId", "ciphertext"],
+    "photonInstallationCiphertextRecord",
   );
-  if (
-    ![
-      "not-started",
-      "awaiting-authorization",
-      "provisioning",
-      "needs-owner-rebind",
-      "needs-credential-repair",
-      "connected",
-      "failed",
-    ].includes(status.state as string)
-  ) {
-    throw new TypeError("installation status state is unsupported");
-  }
-  if (status.installationId !== installation.installationId)
-    throw new TypeError("installation record identity mismatch");
-  if (status.management !== undefined) {
-    const management = object(status.management, "installationRecord.status.management");
-    keys(management, ["credentialPath"], "installationRecord.status.management");
-    string(management, "credentialPath", "installationRecord.status.management");
-  }
-  if (status.runtime !== undefined) {
-    const runtime = object(status.runtime, "installationRecord.status.runtime");
-    keys(runtime, ["credentialCiphertext"], "installationRecord.status.runtime");
-    string(runtime, "credentialCiphertext", "installationRecord.status.runtime");
-  }
-  optionalString(status, "managementOrigin", "installationRecord.status");
-  const display = projectInstallationForDashboard(input.status as never);
-  if (display.state !== status.state) throw new TypeError("installation status state is unsupported");
-  const normalizedStatus = {
-    ...display,
-    ...(status.management === undefined ? {} : { management: status.management }),
-    ...(status.managementOrigin === undefined ? {} : { managementOrigin: status.managementOrigin }),
-    ...(status.runtime === undefined ? {} : { runtime: status.runtime }),
-  };
-  if (!sameJson(status, normalizedStatus))
-    throw new TypeError("installation status contains state-incompatible fields");
-  if (display.state === "connected" && installation.projectId !== display.projectId) {
-    throw new TypeError("connected installation project mismatch");
-  }
-  string(input, "ownerRevision", "installationRecord");
-  integer(input, "version", 1, "installationRecord");
-  return value as unknown as InstallationRecord;
+  string(input, "installationId", "photonInstallationCiphertextRecord");
+  string(input, "ownerRevision", "photonInstallationCiphertextRecord");
+  integer(input, "version", 1, "photonInstallationCiphertextRecord");
+  string(input, "wrappingKeyId", "photonInstallationCiphertextRecord");
+  string(input, "ciphertext", "photonInstallationCiphertextRecord");
+  return value as unknown as PhotonInstallationCiphertextRecord;
 }
 
 function validateChallenge(value: unknown): VerifiedAddressChallenge {

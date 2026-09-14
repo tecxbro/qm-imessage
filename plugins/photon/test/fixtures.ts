@@ -25,7 +25,6 @@ import type {
   DeliveryOperationRecord,
   DeliveryOperationStorePort,
   EventReceipt,
-  EventReceiptStorePort,
   InstallationRecord,
   InstallationStorePort,
   MessageBinding,
@@ -36,6 +35,9 @@ import type {
   ProviderLineScope,
   PublicCardHandle,
   PublicCardHandleStorePort,
+  ReceiptRecoveryPage,
+  ReceiptRecoveryQuery,
+  RecoverableEventReceiptStorePort,
   ReceiptClaim,
   SpectrumProviderClientPort,
   TextStreamSessionRecord,
@@ -382,7 +384,7 @@ export class FakeCanonicalIdentityLookup implements CanonicalIdentityLookupPort 
   }
 }
 
-export class FakeEventReceiptStore implements EventReceiptStorePort {
+export class FakeEventReceiptStore implements RecoverableEventReceiptStorePort {
   readonly receipts: EventReceipt[] = [];
   readonly checkpoints: Array<{ scope: ProviderLineScope; sequence: string; version: number }> = [];
 
@@ -447,6 +449,43 @@ export class FakeEventReceiptStore implements EventReceiptStorePort {
     const claimed = { ...current, state: "processing" as const, claim };
     this.receipts[index] = claimed;
     return claimed;
+  }
+
+  async discoverRecoverable(query: ReceiptRecoveryQuery): Promise<ReceiptRecoveryPage> {
+    const now = Date.parse(query.now);
+    if (!Number.isFinite(now) || new Date(now).toISOString() !== query.now) throw new TypeError("now is invalid");
+    if (!Number.isSafeInteger(query.limit) || query.limit < 1 || query.limit > 128) {
+      throw new TypeError("limit is invalid");
+    }
+    const eligible = this.receipts
+      .filter(
+        (receipt) =>
+          receipt.key.provider === query.provider &&
+          receipt.key.installationId === query.installationId &&
+          receipt.key.lineId === query.lineId &&
+          (receipt.state === "captured" ||
+            (receipt.state === "processing" &&
+              receipt.claim !== undefined &&
+              Date.parse(receipt.claim.leaseExpiresAt) <= now)),
+      )
+      .sort(
+        (left, right) =>
+          left.capturedAt.localeCompare(right.capturedAt) || left.key.eventId.localeCompare(right.key.eventId),
+      )
+      .filter(
+        (receipt) =>
+          query.after === undefined ||
+          receipt.capturedAt > query.after.capturedAt ||
+          (receipt.capturedAt === query.after.capturedAt && receipt.key.eventId > query.after.eventId),
+      );
+    const receipts = eligible.slice(0, query.limit);
+    const last = receipts.at(-1);
+    return {
+      receipts,
+      ...(eligible.length > query.limit && last
+        ? { next: { capturedAt: last.capturedAt, eventId: last.key.eventId } }
+        : {}),
+    };
   }
 
   async completeWithoutSequence(key: ProviderEventKey, claim: ReceiptClaim, now: string): Promise<boolean> {
