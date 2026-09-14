@@ -187,3 +187,48 @@ test("validates canonical recovery bounds and cursors", { skip }, async () => {
     /canonical ISO timestamp/u,
   );
 });
+
+test("rejects relational identity and claim drift", { skip }, async () => {
+  const store = createPhotonReceiptStore(database(pool!));
+  const now = "2026-09-10T12:10:00.000Z";
+  const drifted = receipt("drifted", "2026-09-10T12:07:00.000Z");
+  assert.equal(await store.capture(drifted), "captured");
+  await pool!.query(
+    `UPDATE ${PHOTON_STATE_SCHEMA}.event_receipts
+        SET installation_id = 'drifted-installation'
+      WHERE provider = $1 AND installation_id = $2 AND line_id = $3 AND event_id = $4`,
+    [drifted.key.provider, drifted.key.installationId, drifted.key.lineId, drifted.key.eventId],
+  );
+  await assert.rejects(
+    store.discoverRecoverable({
+      provider: drifted.key.provider,
+      installationId: "drifted-installation",
+      ...(drifted.key.lineId === undefined ? {} : { lineId: drifted.key.lineId }),
+      now,
+      limit: 1,
+    }),
+    /columns disagree with record/u,
+  );
+
+  const claimDrifted = receipt("claim-drifted", "2026-09-10T12:08:00.000Z", "drift-line");
+  assert.equal(await store.capture(claimDrifted), "captured");
+  assert.ok(
+    await store.claim(claimDrifted.key, "drift-worker", "2026-09-10T12:00:00.000Z", "2026-09-10T12:05:00.000Z"),
+  );
+  await pool!.query(
+    `UPDATE ${PHOTON_STATE_SCHEMA}.event_receipts
+        SET claim_fence = claim_fence + 1
+      WHERE provider = $1 AND installation_id = $2 AND line_id = $3 AND event_id = $4`,
+    [claimDrifted.key.provider, claimDrifted.key.installationId, claimDrifted.key.lineId, claimDrifted.key.eventId],
+  );
+  await assert.rejects(
+    store.discoverRecoverable({
+      provider: claimDrifted.key.provider,
+      installationId: claimDrifted.key.installationId,
+      ...(claimDrifted.key.lineId === undefined ? {} : { lineId: claimDrifted.key.lineId }),
+      now,
+      limit: 1,
+    }),
+    /claim columns disagree with record/u,
+  );
+});

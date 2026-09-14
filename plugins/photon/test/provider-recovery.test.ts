@@ -2,12 +2,18 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { CatchUpEvent, LiveEvent, Message, MessageEvent } from "@photon-ai/advanced-imessage/grpc";
 
-import type { CapturedEventReceipt, EventReceipt, ProviderLineScope } from "../src/ports.ts";
+import type {
+  CapturedEventReceipt,
+  EventReceipt,
+  ProviderLineScope,
+  ReceiptRecoveryPage,
+  ReceiptRecoveryQuery,
+  RecoverableEventReceiptStorePort,
+} from "../src/ports.ts";
 import type { ProviderLine } from "../src/provider/capabilities.ts";
 import type { ProviderConnection } from "../src/provider/connection.ts";
 import { eventKey, startProviderIntake } from "../src/provider/recovery.ts";
 import { normalizeAdvancedEvent } from "../src/provider/subscriptions.ts";
-import type { ReceiptRecoveryPage, ReceiptRecoveryQuery } from "../../chassis/src/photon-state/receipts.ts";
 import { FakeEventReceiptStore } from "./fixtures.ts";
 
 const timestamp = new Date("2026-09-10T12:00:00.000Z");
@@ -97,7 +103,7 @@ function sameScope(receipt: EventReceipt, query: ReceiptRecoveryQuery): boolean 
   );
 }
 
-class RecoverableStore extends FakeEventReceiptStore {
+class RecoverableStore extends FakeEventReceiptStore implements RecoverableEventReceiptStorePort {
   beforeReturn: (() => Promise<void> | void) | undefined;
   afterCapture: ((receipt: CapturedEventReceipt) => void) | undefined;
 
@@ -412,11 +418,4 @@ test("live input is captured while a durable discovery failure is pending", asyn
   resumeDiscovery.resolve();
   await assert.rejects(starting, /PROVIDER_RECOVERY_REFERENCE_UNRESOLVED/u);
   assert.ok(await store.read(eventKey(normalizeAdvancedEvent(event(7), line))));
-});
-
-test("missing durable discovery fails closed", async () => {
-  await assert.rejects(
-    startProviderIntake(connection().value, new FakeEventReceiptStore(), async () => undefined),
-    /PROVIDER_RECEIPT_RECOVERY_UNAVAILABLE/u,
-  );
 });

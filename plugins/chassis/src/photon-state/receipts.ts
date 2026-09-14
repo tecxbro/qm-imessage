@@ -1,9 +1,9 @@
 import type {
   ContiguousCheckpoint,
   EventReceipt,
-  EventReceiptStorePort,
   ProviderEventKey,
   ProviderLineScope,
+  RecoverableEventReceiptStorePort,
   ReceiptClaim,
 } from "../../../photon/src/ports.ts";
 import { canonicalSequence } from "../photon-state-records.ts";
@@ -25,32 +25,16 @@ import {
   type RecordRow,
 } from "./shared.ts";
 
-export interface ReceiptRecoveryCursor {
-  capturedAt: string;
-  eventId: string;
-}
-
-export interface ReceiptRecoveryQuery {
-  provider: ProviderEventKey["provider"];
-  installationId: string;
-  lineId?: string;
-  now: string;
-  limit: number;
-  after?: ReceiptRecoveryCursor;
-}
-
-export interface ReceiptRecoveryPage {
-  receipts: readonly EventReceipt[];
-  next?: ReceiptRecoveryCursor;
-}
-
-export interface RecoverableEventReceiptStorePort extends EventReceiptStorePort {
-  discoverRecoverable(query: ReceiptRecoveryQuery): Promise<ReceiptRecoveryPage>;
-}
-
 type ReceiptRecoveryRow = RecordRow & {
   captured_at: Date | string;
+  claim_expires_at: Date | string | null;
+  claim_fence: number | string;
   event_id: string;
+  installation_id: string;
+  line_id: string;
+  provider: string;
+  sequence: number | string | null;
+  state: string;
 };
 
 function activeClaim(current: ReceiptClaim | undefined, expected: ReceiptClaim, now: string): boolean {
@@ -329,7 +313,8 @@ export function createPhotonReceiptStore(database: PhotonStateDatabase): Recover
         nonempty(query.after.eventId, "after.eventId");
       }
       const result = await database.query<ReceiptRecoveryRow>(
-        `SELECT record, record_version, captured_at, event_id
+        `SELECT record, record_version, provider, installation_id, line_id, event_id,
+                sequence, state, claim_fence, claim_expires_at, captured_at
            FROM ${PHOTON_STATE_SCHEMA}.event_receipts
           WHERE provider = $1
             AND installation_id = $2
@@ -358,9 +343,27 @@ export function createPhotonReceiptStore(database: PhotonStateDatabase): Recover
         const receipt = decoded("event-receipt", row);
         if (receipt === undefined) throw new Error("recoverable receipt row is missing");
         const capturedAt = row.captured_at instanceof Date ? row.captured_at.toISOString() : row.captured_at;
+        const claimExpiresAt =
+          row.claim_expires_at instanceof Date ? row.claim_expires_at.toISOString() : row.claim_expires_at;
         canonicalTimestamp(capturedAt, "capturedAt");
-        if (receipt.capturedAt !== capturedAt || receipt.key.eventId !== row.event_id)
+        if (
+          receipt.key.provider !== row.provider ||
+          receipt.key.installationId !== row.installation_id ||
+          (receipt.key.lineId ?? "") !== row.line_id ||
+          receipt.key.eventId !== row.event_id ||
+          receipt.sequence !== (row.sequence === null ? undefined : String(row.sequence)) ||
+          receipt.state !== row.state ||
+          receipt.capturedAt !== capturedAt
+        )
           throw new Error("recoverable receipt columns disagree with record");
+        if (
+          (receipt.state === "processing" &&
+            (claimExpiresAt === null ||
+              receipt.claim?.leaseExpiresAt !== claimExpiresAt ||
+              receipt.claim.fence !== Number(row.claim_fence))) ||
+          (receipt.state === "captured" && (claimExpiresAt !== null || Number(row.claim_fence) !== 0))
+        )
+          throw new Error("recoverable receipt claim columns disagree with record");
         return receipt;
       });
       const last = discovered.at(-1);

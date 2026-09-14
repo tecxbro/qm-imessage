@@ -1,6 +1,12 @@
 import type { CatchUpEvent, LiveEvent } from "@photon-ai/advanced-imessage/grpc";
 import type { NormalizedPhotonInput } from "../../../chassis/src/photon-contract.ts";
-import type { EventReceipt, EventReceiptStorePort, ProviderEventKey } from "../ports.ts";
+import type {
+  EventReceipt,
+  EventReceiptStorePort,
+  ProviderEventKey,
+  ReceiptRecoveryCursor,
+  RecoverableEventReceiptStorePort,
+} from "../ports.ts";
 import type { ProviderConnection } from "./connection.ts";
 import { normalizeAdvancedEvent, normalizeSpectrumMessage, providerSequence } from "./subscriptions.ts";
 
@@ -16,33 +22,6 @@ export const DEFAULT_RECOVERY_LIMITS: RecoveryLimits = {
   maxBytes: 16 * 1024 * 1024,
   catchupTimeoutMs: 30_000,
 };
-
-interface ReceiptRecoveryCursor {
-  capturedAt: string;
-  eventId: string;
-}
-
-interface ReceiptRecoveryPage {
-  receipts: readonly EventReceipt[];
-  next?: ReceiptRecoveryCursor;
-}
-
-interface RecoverableEventReceiptStorePort extends EventReceiptStorePort {
-  discoverRecoverable(query: {
-    provider: ProviderEventKey["provider"];
-    installationId: string;
-    lineId?: string;
-    now: string;
-    limit: number;
-    after?: ReceiptRecoveryCursor;
-  }): Promise<ReceiptRecoveryPage>;
-}
-
-function recoveryStore(store: EventReceiptStorePort): RecoverableEventReceiptStorePort {
-  if (!("discoverRecoverable" in store) || typeof store.discoverRecoverable !== "function")
-    throw new Error("PROVIDER_RECEIPT_RECOVERY_UNAVAILABLE");
-  return store as RecoverableEventReceiptStorePort;
-}
 
 function receiptIdentity(key: ProviderEventKey): string {
   return JSON.stringify([key.provider, key.installationId, key.lineId ?? "", key.eventId]);
@@ -79,7 +58,7 @@ async function capture(store: EventReceiptStorePort, input: NormalizedPhotonInpu
 
 export async function startProviderIntake(
   connection: ProviderConnection,
-  store: EventReceiptStorePort,
+  store: RecoverableEventReceiptStorePort,
   onInput: (input: NormalizedPhotonInput) => Promise<void>,
   limits: RecoveryLimits = DEFAULT_RECOVERY_LIMITS,
 ) {
@@ -154,7 +133,6 @@ export async function startProviderIntake(
     }
   }
   async function recoverDurableReceipts() {
-    const recoverable = recoveryStore(store);
     const seen = new Set<string>();
     const recovered: NormalizedPhotonInput[] = [];
     let bytes = 0;
@@ -165,7 +143,7 @@ export async function startProviderIntake(
       const now = new Date().toISOString();
       do {
         if (stopped) return recovered;
-        const page = await recoverable.discoverRecoverable({
+        const page = await store.discoverRecoverable({
           ...connection.line.reference,
           now,
           limit: Math.min(128, limits.maxEvents),
