@@ -1,18 +1,14 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import {
-  createPhotonLineOwnerStore,
-  type PhotonLineOwnerClaim,
-  type PhotonLineOwnerKey,
-  type PhotonLineOwnerStore,
-} from "../../chassis/src/photon-state/line-owner.ts";
+import { createPhotonLineOwnerStore } from "../../chassis/src/photon-state/line-owner.ts";
 import type { PhotonPresentationOperation } from "../../chassis/src/photon-contract.ts";
 import type { PhotonStateDatabase } from "../../chassis/src/photon-state/db.ts";
 import type { ProviderLine } from "../src/provider/capabilities.ts";
 import { createAdvancedProviderClient, operationReference } from "../src/provider/clients.ts";
 import { createConnectionManager, type ProviderConstructors } from "../src/provider/connection.ts";
 import { createProviderLineOwnership } from "../src/provider/line-owner.ts";
+import type { PhotonLineOwnerClaim, PhotonLineOwnerKey, PhotonLineOwnerStore } from "../src/ports.ts";
 
 class FakeLineOwnerStore implements PhotonLineOwnerStore {
   current = new Map<string, PhotonLineOwnerClaim>();
@@ -48,6 +44,7 @@ class FakeLineOwnerStore implements PhotonLineOwnerStore {
       !this.allowRenewal ||
       current?.ownerId !== claim.ownerId ||
       current.fence !== claim.fence ||
+      current.leaseExpiresAt !== claim.leaseExpiresAt ||
       current.key.installationId !== claim.key.installationId ||
       current.key.lineId !== claim.key.lineId
     )
@@ -61,7 +58,12 @@ class FakeLineOwnerStore implements PhotonLineOwnerStore {
     this.releases += 1;
     const id = JSON.stringify([claim.key.installationId, claim.key.lineId]);
     const current = this.current.get(id);
-    if (current?.ownerId !== claim.ownerId || current.fence !== claim.fence) return false;
+    if (
+      current?.ownerId !== claim.ownerId ||
+      current.fence !== claim.fence ||
+      current.leaseExpiresAt !== claim.leaseExpiresAt
+    )
+      return false;
     this.current.delete(id);
     return true;
   }
@@ -162,6 +164,22 @@ test("renewal loss fails closed and invokes loss cleanup", async () => {
   );
   assert.ok(lease);
   store.allowRenewal = false;
+  await configured.time.fire();
+  assert.throws(() => lease.assertActive(), /OWNERSHIP_LOST/u);
+  assert.equal(losses, 1);
+});
+
+test("a renewal that does not advance the exact lease generation is rejected", async () => {
+  const store = new FakeLineOwnerStore();
+  const configured = ownership(store);
+  let losses = 0;
+  const lease = await configured.value.acquire(
+    { installationId: "installation", lineId: "line" },
+    () => void (losses += 1),
+  );
+  assert.ok(lease);
+  store.renew = async (claim) => claim;
+  configured.time.advance(100);
   await configured.time.fire();
   assert.throws(() => lease.assertActive(), /OWNERSHIP_LOST/u);
   assert.equal(losses, 1);

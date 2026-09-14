@@ -1,33 +1,11 @@
 import { PHOTON_STATE_SCHEMA } from "../photon-state-schema.ts";
+import type { PhotonLineOwnerClaim, PhotonLineOwnerKey, PhotonLineOwnerStore } from "../../../photon/src/ports.ts";
 
 import type { PhotonStateDatabase } from "./db.ts";
 import { canonicalTimestamp, nonempty, resultCount } from "./shared.ts";
 
 const MAX_FENCE = Number.MAX_SAFE_INTEGER;
 const MAX_LEASE_DURATION_MS = 86_400_000;
-
-export interface PhotonLineOwnerKey {
-  installationId: string;
-  lineId: string;
-}
-
-export interface PhotonLineOwnerClaim {
-  key: PhotonLineOwnerKey;
-  ownerId: string;
-  fence: number;
-  leaseExpiresAt: string;
-}
-
-export interface PhotonLineOwnerStore {
-  claim(
-    key: PhotonLineOwnerKey,
-    ownerId: string,
-    now: string,
-    leaseExpiresAt: string,
-  ): Promise<PhotonLineOwnerClaim | undefined>;
-  renew(claim: PhotonLineOwnerClaim, now: string, leaseExpiresAt: string): Promise<PhotonLineOwnerClaim | undefined>;
-  release(claim: PhotonLineOwnerClaim, now: string): Promise<boolean>;
-}
 
 interface LineOwnerRow {
   [key: string]: unknown;
@@ -65,6 +43,9 @@ function claimFromRow(row: LineOwnerRow | undefined): PhotonLineOwnerClaim | und
   const fence = Number(row.fence);
   if (!Number.isSafeInteger(fence) || fence <= 0 || fence > MAX_FENCE)
     throw new TypeError("line owner fence is invalid");
+  nonempty(row.installation_id, "installationId");
+  nonempty(row.line_id, "lineId");
+  nonempty(row.owner_id, "ownerId");
   const expiresAt = row.expires_at instanceof Date ? row.expires_at : new Date(row.expires_at);
   if (!Number.isFinite(expiresAt.getTime())) throw new TypeError("line owner expiry is invalid");
   return {
@@ -87,7 +68,8 @@ export function createPhotonLineOwnerStore(database: PhotonStateDatabase): Photo
                 INSERT INTO ${PHOTON_STATE_SCHEMA}.line_owners AS owned(
                   installation_id, line_id, owner_id, fence, expires_at
                 )
-                SELECT $1, $2, $3, 1, at + $4::double precision * interval '1 millisecond'
+                SELECT $1, $2, $3, 1,
+                       date_trunc('milliseconds', at + $4::double precision * interval '1 millisecond')
                   FROM lease_clock
                 ON CONFLICT (installation_id, line_id) DO UPDATE
                   SET owner_id = EXCLUDED.owner_id,
@@ -120,19 +102,23 @@ export function createPhotonLineOwnerStore(database: PhotonStateDatabase): Photo
           `WITH lease_clock AS MATERIALIZED (SELECT clock_timestamp() AS at),
                 renewed AS (
                   UPDATE ${PHOTON_STATE_SCHEMA}.line_owners AS owned
-                     SET expires_at = lease_clock.at + $5::double precision * interval '1 millisecond'
+                     SET expires_at = date_trunc(
+                       'milliseconds',
+                       lease_clock.at + $6::double precision * interval '1 millisecond'
+                     )
                     FROM lease_clock
                    WHERE owned.installation_id = $1
                      AND owned.line_id = $2
                      AND owned.owner_id = $3
                      AND owned.fence = $4
+                     AND owned.expires_at = $5::timestamptz
                      AND owned.expires_at > lease_clock.at
                   RETURNING owned.installation_id, owned.line_id, owned.owner_id, owned.fence, owned.expires_at
                 )
            SELECT installation_id, line_id, owner_id, fence, expires_at
              FROM renewed
             WHERE expires_at > clock_timestamp()`,
-          [claim.key.installationId, claim.key.lineId, claim.ownerId, claim.fence, duration],
+          [claim.key.installationId, claim.key.lineId, claim.ownerId, claim.fence, claim.leaseExpiresAt, duration],
         );
         return claimFromRow(result.rows[0]);
       });
@@ -149,8 +135,9 @@ export function createPhotonLineOwnerStore(database: PhotonStateDatabase): Photo
             AND owned.line_id = $2
             AND owned.owner_id = $3
             AND owned.fence = $4
+            AND owned.expires_at = $5::timestamptz
         RETURNING owned.installation_id`,
-        [claim.key.installationId, claim.key.lineId, claim.ownerId, claim.fence],
+        [claim.key.installationId, claim.key.lineId, claim.ownerId, claim.fence, claim.leaseExpiresAt],
       );
       return resultCount(result) === 1;
     },

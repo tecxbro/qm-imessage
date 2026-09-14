@@ -4,12 +4,16 @@ import { pathToFileURL } from "node:url";
 import { after, before, test } from "node:test";
 import pg from "pg";
 
+import { createPhotonLineOwnerStore } from "../plugins/chassis/src/photon-state/line-owner.ts";
 import {
-  createPhotonLineOwnerStore,
-  type PhotonLineOwnerClaim,
-} from "../plugins/chassis/src/photon-state/line-owner.ts";
-import { PHOTON_STATE_SCHEMA } from "../plugins/chassis/src/photon-state-schema.ts";
+  PHOTON_ADAPTER_DATABASE_ROLE,
+  PHOTON_CORE_LINK_DATABASE_ROLE,
+  PHOTON_STATE_MIGRATIONS,
+  PHOTON_STATE_SCHEMA,
+} from "../plugins/chassis/src/photon-state-schema.ts";
+import type { PhotonLineOwnerClaim } from "../plugins/photon/src/ports.ts";
 import { createPhotonStateDatabase, type PhotonStatePool } from "../plugins/photon/src/state.ts";
+import { applyPgMigrations, definePgMigration, PG_MIGRATIONS_TABLE } from "../src/persistence/pg-pool.ts";
 import { cp1PostgresSkip, createCp1PostgresHarness, type Cp1PostgresHarness } from "./helpers/cp1-postgres.ts";
 
 const databaseUrl = process.env.CP1_POSTGRES_ADMIN_URL;
@@ -29,15 +33,12 @@ before(async () => {
   if (!databaseUrl) return;
   harness = await createCp1PostgresHarness(databaseUrl);
   pool = harness.pool;
-  await pool.query(`CREATE SCHEMA ${PHOTON_STATE_SCHEMA}`);
-  await pool.query(`CREATE TABLE ${PHOTON_STATE_SCHEMA}.line_owners(
-    installation_id TEXT NOT NULL,
-    line_id TEXT NOT NULL,
-    owner_id TEXT NOT NULL,
-    fence BIGINT NOT NULL CHECK (fence > 0 AND fence <= 9007199254740991),
-    expires_at TIMESTAMPTZ NOT NULL,
-    PRIMARY KEY (installation_id, line_id)
-  )`);
+  await harness.withClusterLock(async () => {
+    await applyPgMigrations(
+      pool!,
+      PHOTON_STATE_MIGRATIONS.map((migration) => definePgMigration(migration.id, migration.statements)),
+    );
+  });
 });
 
 after(async () => {
@@ -137,6 +138,34 @@ function connectionProcess(input: {
   });
   return { child, ready, closed };
 }
+
+test("registered migrations install the restricted line-owner table", { skip }, async () => {
+  const migrations = await pool!.query<{ id: string }>(
+    `SELECT id FROM ${PG_MIGRATIONS_TABLE} WHERE id LIKE 'photon/state/%' ORDER BY id`,
+  );
+  assert.deepEqual(migrations.rows, [{ id: "photon/state/0001" }, { id: "photon/state/0002" }]);
+  const privileges = await pool!.query<{
+    adapter_insert: boolean;
+    adapter_select: boolean;
+    adapter_update: boolean;
+    core_link_select: boolean;
+    public_select: boolean;
+  }>(
+    `SELECT has_table_privilege($1, $3, 'SELECT') AS adapter_select,
+            has_table_privilege($1, $3, 'INSERT') AS adapter_insert,
+            has_table_privilege($1, $3, 'UPDATE') AS adapter_update,
+            has_table_privilege($2, $3, 'SELECT') AS core_link_select,
+            has_table_privilege('public', $3, 'SELECT') AS public_select`,
+    [PHOTON_ADAPTER_DATABASE_ROLE, PHOTON_CORE_LINK_DATABASE_ROLE, `${PHOTON_STATE_SCHEMA}.line_owners`],
+  );
+  assert.deepEqual(privileges.rows[0], {
+    adapter_insert: true,
+    adapter_select: true,
+    adapter_update: true,
+    core_link_select: false,
+    public_select: false,
+  });
+});
 
 async function terminateConnectionProcess(process: ReturnType<typeof connectionProcess>, expectRunning = false) {
   const running = process.child.exitCode === null && process.child.signalCode === null;
@@ -349,7 +378,7 @@ test("renewal blocked past expiry cannot resurrect an expired generation", { ski
   }
 });
 
-test("release expires rather than deletes and an exhausted fence cannot wrap", { skip }, async () => {
+test("renew and release require the exact lease expiry and an exhausted fence cannot wrap", { skip }, async () => {
   const store = createPhotonLineOwnerStore(database(pool!));
   const now = Date.now();
   const claim = await store.claim(
@@ -359,14 +388,22 @@ test("release expires rather than deletes and an exhausted fence cannot wrap", {
     new Date(now + 2_000).toISOString(),
   );
   assert.ok(claim);
-  assert.equal(await store.release(claim, new Date().toISOString()), true);
+  const renewNow = Date.now();
+  const renewed = await store.renew(claim, new Date(renewNow).toISOString(), new Date(renewNow + 3_000).toISOString());
+  assert.ok(renewed);
+  assert.equal(
+    await store.renew(claim, new Date().toISOString(), new Date(Date.now() + 3_000).toISOString()),
+    undefined,
+  );
+  assert.equal(await store.release(claim, new Date().toISOString()), false);
+  assert.equal(await store.release(renewed, new Date().toISOString()), true);
   const retained = await pool!.query(
     `SELECT owner_id, fence, expires_at <= clock_timestamp() AS expired
        FROM ${PHOTON_STATE_SCHEMA}.line_owners
       WHERE installation_id = $1 AND line_id = $2`,
-    [claim.key.installationId, claim.key.lineId],
+    [renewed.key.installationId, renewed.key.lineId],
   );
-  assert.deepEqual(retained.rows[0], { owner_id: claim.ownerId, fence: String(claim.fence), expired: true });
+  assert.deepEqual(retained.rows[0], { owner_id: renewed.ownerId, fence: String(renewed.fence), expired: true });
 
   await pool!.query(
     `INSERT INTO ${PHOTON_STATE_SCHEMA}.line_owners(installation_id, line_id, owner_id, fence, expires_at)

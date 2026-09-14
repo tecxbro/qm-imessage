@@ -1,10 +1,6 @@
 import { randomUUID } from "node:crypto";
 
-import type {
-  PhotonLineOwnerClaim,
-  PhotonLineOwnerKey,
-  PhotonLineOwnerStore,
-} from "../../../chassis/src/photon-state/line-owner.ts";
+import type { PhotonLineOwnerClaim, PhotonLineOwnerKey, PhotonLineOwnerStore } from "../ports.ts";
 
 const DEFAULT_LEASE_TTL_MS = 30_000;
 const MAX_LEASE_TTL_MS = 86_400_000;
@@ -44,6 +40,7 @@ function assertExpectedClaim(
   key: PhotonLineOwnerKey,
   ownerId: string,
   fence?: number,
+  previousLeaseExpiresAt?: string,
 ): void {
   if (
     claim.key.installationId !== key.installationId ||
@@ -52,7 +49,8 @@ function assertExpectedClaim(
     !Number.isSafeInteger(claim.fence) ||
     claim.fence <= 0 ||
     (fence !== undefined && claim.fence !== fence) ||
-    new Date(claim.leaseExpiresAt).toISOString() !== claim.leaseExpiresAt
+    new Date(claim.leaseExpiresAt).toISOString() !== claim.leaseExpiresAt ||
+    (previousLeaseExpiresAt !== undefined && Date.parse(claim.leaseExpiresAt) <= Date.parse(previousLeaseExpiresAt))
   )
     throw new Error("PROVIDER_LINE_OWNER_INVALID_CLAIM");
 }
@@ -137,7 +135,7 @@ export function createProviderLineOwnership(
             notifyLoss();
             return;
           }
-          assertExpectedClaim(renewed, key, acquiredOwnerId, claim.fence);
+          assertExpectedClaim(renewed, key, acquiredOwnerId, claim.fence, claim.leaseExpiresAt);
           claim = renewed;
           deadline = renewalStartedAt + leaseTtlMs;
           schedule();
