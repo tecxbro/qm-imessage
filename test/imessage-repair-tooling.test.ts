@@ -526,7 +526,9 @@ test("repair provenance rejects ancestry, ownership, mode, rename ambiguity, mov
   );
 });
 
-async function createScriptFixture(options: { omitTest?: boolean } = {}) {
+async function createScriptFixture(
+  options: { omitTest?: boolean; coordinatorBranch?: string; legacyIntegrationWorktree?: string } = {},
+) {
   const temporary = await mkdtemp(resolve(tmpdir(), "qm-imessage-repair-flow-"));
   const workspace = resolve(temporary, "workspace");
   const main = resolve(workspace, "main");
@@ -563,7 +565,7 @@ async function createScriptFixture(options: { omitTest?: boolean } = {}) {
       field: "repairBaseCommit",
       requiredFields: ["schemaVersion", "reviewedInput", "repairBaseCommit", "repairs"],
     },
-    coordinator: { branch: "cp1/coordinator", worktree: "." },
+    coordinator: { branch: options.coordinatorBranch ?? "imessage/integration", worktree: "." },
     repairs: {
       r01: {
         base: "repairBaseCommit",
@@ -587,7 +589,7 @@ async function createScriptFixture(options: { omitTest?: boolean } = {}) {
     reviewedFoundationCommit: foundation,
     integration: {
       branch: "imessage/integration",
-      worktree: "main",
+      worktree: options.legacyIntegrationWorktree ?? "main",
       baseRef: "fixture-base",
       foundationCheckpoint: "docs/imessage/integration/foundation-checkpoint-r2.json",
       testFiles: ["test/pass.test.ts"],
@@ -658,6 +660,9 @@ async function createScriptFixture(options: { omitTest?: boolean } = {}) {
     "test/repair-two.test.ts": "import test from 'node:test'; test('repair two', () => {});\n",
   });
   await mergeCandidate(main, repairBase, [one, two]);
+  if (options.coordinatorBranch !== undefined && options.coordinatorBranch !== "imessage/integration") {
+    git(main, "branch", "-m", options.coordinatorBranch);
+  }
   const checkpointInput = {
     inputBaseCommit: foundation,
     laneContributions: [{ laneId: "wt-01", baseCommit: foundation, commit: laneCommit }],
@@ -716,6 +721,32 @@ test("integration verification and Wave B preparation accept the same repaired c
   );
   assert.equal(prepared.status, 0, prepared.stderr);
   assert.equal(git(resolve(fixture.workspace, "worktrees/wt-07"), "rev-parse", "HEAD"), fixture.target);
+});
+
+test("repair checkpoint verification runs from its registered coordinator instead of the legacy integration path", async (context) => {
+  const fixture = await createScriptFixture({
+    coordinatorBranch: "cp1/coordinator",
+    legacyIntegrationWorktree: "worktrees/wt-integration",
+  });
+  context.after(() => rm(fixture.temporary, { recursive: true, force: true }));
+  assert.equal(fixture.integrationVerification.status, 0, fixture.integrationVerification.stderr);
+  assert.match(fixture.integrationVerification.stdout, /VERIFIED:integration/u);
+  const checkpointPath = resolve(fixture.main, "docs/imessage/integration/checkpoint-1-input.json");
+  const legacyCheckpoint = JSON.parse(await readFile(checkpointPath, "utf8"));
+  delete legacyCheckpoint.repairContributions;
+  await writeFile(checkpointPath, `${JSON.stringify(legacyCheckpoint, null, 2)}\n`);
+  const legacyVerification = command(
+    process.execPath,
+    [
+      "scripts/imessage-verify-lane.mjs",
+      "integration",
+      "--checkpoint",
+      "docs/imessage/integration/checkpoint-1-input.json",
+    ],
+    fixture.main,
+  );
+  assert.notEqual(legacyVerification.status, 0);
+  assert.match(legacyVerification.stderr, /WORKTREE_PATH_MISMATCH/u);
 });
 
 test("repair-aware scripts reject omitted tests, moved tags, modified checkpoints, and dirty candidates", async (context) => {
