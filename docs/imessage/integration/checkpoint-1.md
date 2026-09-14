@@ -77,9 +77,9 @@ Every parallel repair started at `fe92c5b1a4aeddf4b8fdf893c37f7ccbeec81cb3`. Fol
 
 ## Integration joins and resolutions
 
-R15 was rebuilt after the final R01-R14 heads so its dependency ancestry is explicit. Its base is `e4c4fe2c8b55888375b3e15102dae3099dfe9633`, contribution is `62d47dea7c58baa7b25504b30edf01f8db708bf9`, and coordinator merge is `f3d9c43fe83f9a9fa07b2064960e752a86606f0e`.
+R15 was rebuilt after the final R01-R14 heads so its dependency ancestry is explicit. Its base is `ce62c9ad2a0a14d6f58ebb526c31d07d58be8cae`, contribution is `f8e989d9436215f94b5eb8e678c12a068b41fe12`, and coordinator merge is `e126093a6052ebc8063b5028a332e2a47f596acb`.
 
-R16 starts from the final R15 contribution. Its base is `62d47dea7c58baa7b25504b30edf01f8db708bf9`, contribution is `6a09fa2fb1435977d5878e41b118ec114f05313c`, and coordinator merge is `2f7974f533290389c27a83bad93289b184035a7b`.
+R16 starts from the final R15 contribution. Its base is `f8e989d9436215f94b5eb8e678c12a068b41fe12`, contribution is `49f624ccd7b381f1891c3324b0d59301d7489c17`, and coordinator merge is `15794917d54104d1479e105b4ac1be2f21fb1ece`.
 
 Two original-lane test corrections are separately recorded by exact base, commit, path, and repair ancestry in `checkpoint-1-input.json`:
 
