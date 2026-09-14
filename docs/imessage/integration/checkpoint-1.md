@@ -63,7 +63,7 @@ Every parallel repair started at `fe92c5b1a4aeddf4b8fdf893c37f7ccbeec81cb3`. Fol
 | R01    | `ada9223c8ca16644fb4f2f744a3cf7c4d861053e` | `4df1524ab954e8df435bcd15088b52294ab6506d` | Encrypted installation adapter, restart and tamper cases                     |
 | R02    | `738cf3aafc689654f05bace39fb257e9a54c4cc1` | `46d0bb3fa77e46c68affab64b4bf606400bab474` | 14 PostgreSQL selection/CAS cases                                            |
 | R03    | `c1732738688736a2c88cd31b5187b1052de7cf2d` | `951dad235a61cdd49c5e936cedc352d8bebbb647` | Bounded receipt discovery and provider recovery                              |
-| R04    | `43dac5975f3212f5544ef84ec749b22dfcb10dfc` | `0448914e2d74f0d265c2e128bd494a4354b0beda` | Exact fenced delivery recovery                                               |
+| R04    | `29680b346d1aa6de7e794c756ffaf1432c8d6c5f` | `6b0106916d8e78f5a76caa71d930e4fe998b9889` | Fenced delivery recovery with final required port surface                    |
 | R05    | `fcd24ef6ee4031da0c0239961a38f9a7a0719ecd` | `ff432fb7d026179798f04331bac20b06b8a149f3` | Historical message/action session authority                                  |
 | R06    | `5a6cecdbfe54f651d757da3e9b5901c518833255` | `7df32371b08072fc316d5907fe7af5ab5be87a19` | Structured Photon destination projection                                     |
 | R07    | `7fd1075396091e3e1a7113df83f6a5e3e74ee7b4` | `10dae5840662fa457f5efd577ab868fbefc227e9` | Reach preflight and no-work denial                                           |
