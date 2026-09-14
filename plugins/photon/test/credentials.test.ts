@@ -233,6 +233,25 @@ test("fails closed for shared credentials, Advanced mode, and wrong project scop
     kind: "unavailable",
     code: "PHOTON_PROJECT_CREDENTIAL_SCOPE_MISMATCH",
   });
+
+  const projectSecret = "must-not-become-a-line-token";
+  const missingLineToken = createSpectrumCloudLineCredentialAcquirer({
+    projectSecrets: projectSecrets(projectSecret),
+    issuer: {
+      issueImessageTokens: async () => ({
+        type: "dedicated",
+        auth: {},
+        numbers: { "line-a": "+14155550100" },
+        expiresIn: 600,
+      }),
+    },
+  });
+  const missingLineResult = await missingLineToken({ line: line(), acquiredAt: new Date(now).toISOString() });
+  assert.deepEqual(missingLineResult, {
+    kind: "unavailable",
+    code: "PHOTON_CREDENTIAL_LINE_NOT_FOUND",
+  });
+  assert.doesNotMatch(JSON.stringify(missingLineResult), new RegExp(projectSecret, "u"));
 });
 
 test("rejects malformed provider responses, unknown lines, wrong phones, and invalid TTLs", async (context) => {
@@ -498,6 +517,74 @@ test("implements the frozen resolver projection and classifies near expiry", asy
     }),
     { kind: "unavailable", code: "PHOTON_CREDENTIAL_ACQUISITION_UNSUPPORTED" },
   );
+});
+
+test("rejects request scope before reading private credentials or issuing tokens", async (context) => {
+  let projectSecretReads = 0;
+  let issuerCalls = 0;
+  const resolver = createPhotonLineCredentialResolver({
+    line: line(),
+    projectSecrets: async (input) => {
+      projectSecretReads += 1;
+      return { kind: "ready", credential: { ...input, projectSecret: "project-secret" } };
+    },
+    issuer: {
+      issueImessageTokens: async () => {
+        issuerCalls += 1;
+        return dedicatedIssuer().issueImessageTokens("project-a", "project-secret");
+      },
+    },
+    now: () => now,
+  });
+  const cases = [
+    {
+      name: "installation",
+      input: {
+        installationId: "installation-b",
+        lineId: "line-a",
+        mode: "spectrum" as const,
+        now: new Date(now).toISOString(),
+      },
+      code: "PHOTON_CREDENTIAL_SCOPE_MISMATCH",
+    },
+    {
+      name: "line",
+      input: {
+        installationId: "installation-a",
+        lineId: "line-b",
+        mode: "spectrum" as const,
+        now: new Date(now).toISOString(),
+      },
+      code: "PHOTON_CREDENTIAL_SCOPE_MISMATCH",
+    },
+    {
+      name: "mode",
+      input: {
+        installationId: "installation-a",
+        lineId: "line-a",
+        mode: "advanced" as const,
+        now: new Date(now).toISOString(),
+      },
+      code: "PHOTON_CREDENTIAL_SCOPE_MISMATCH",
+    },
+    {
+      name: "time",
+      input: {
+        installationId: "installation-a",
+        lineId: "line-a",
+        mode: "spectrum" as const,
+        now: "2026-09-14T12:00:00Z",
+      },
+      code: "PHOTON_CREDENTIAL_TIME_INVALID",
+    },
+  ];
+  for (const value of cases) {
+    await context.test(value.name, async () => {
+      assert.deepEqual(await resolver.resolve(value.input), { kind: "unavailable", code: value.code });
+      assert.equal(projectSecretReads, 0);
+      assert.equal(issuerCalls, 0);
+    });
+  }
 });
 
 test("snapshots line scope before asynchronous credential acquisition", async () => {

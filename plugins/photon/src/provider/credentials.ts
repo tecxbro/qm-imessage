@@ -1,5 +1,6 @@
 import { cloud } from "spectrum-ts";
 
+import type { PhotonLineCredentialResolution, PhotonLineCredentialResolver, PhotonProviderMode } from "../ports.ts";
 import type { ProviderLine } from "./capabilities.ts";
 
 export const DEFAULT_LINE_CREDENTIAL_RENEWAL_MARGIN_MS = 300_000;
@@ -29,31 +30,6 @@ export type LineCredentialAcquisition = LineCredentialResolution;
 export type LineCredentialAcquirer = (input: LineCredentialAcquisitionInput) => Promise<LineCredentialAcquisition>;
 
 export type TrustedLineAddress = (input: { readonly line: ProviderLine; readonly address: string }) => boolean;
-
-export type PhotonProviderMode = "spectrum" | "advanced";
-
-export type PhotonLineCredentialResolution =
-  | {
-      readonly kind: "available";
-      readonly installationId: string;
-      readonly lineId: string;
-      readonly mode: PhotonProviderMode;
-      readonly bearerToken: string;
-      readonly expiresAt?: string;
-      readonly provenance: "persisted-line-assignment" | "explicit-runtime-input";
-      readonly renewal: "automatic" | "external";
-    }
-  | { readonly kind: "unavailable"; readonly code: string }
-  | { readonly kind: "expired"; readonly code: string };
-
-export interface PhotonLineCredentialResolver {
-  resolve(input: {
-    readonly installationId: string;
-    readonly lineId: string;
-    readonly mode: PhotonProviderMode;
-    readonly now: string;
-  }): Promise<PhotonLineCredentialResolution>;
-}
 
 export interface ScopedProjectSecret {
   readonly installationId: string;
@@ -361,7 +337,7 @@ export function createPhotonLineCredentialResolver(options: {
   readonly now?: () => number;
 }): PhotonLineCredentialResolver {
   return {
-    resolve: async (input) => {
+    resolve: async (input): Promise<PhotonLineCredentialResolution> => {
       const line = snapshotLine(options.line);
       if (line === undefined) return { kind: "unavailable", code: "PHOTON_CREDENTIAL_SCOPE_INVALID" };
       const expectedMode = providerMode(line);
