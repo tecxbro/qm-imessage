@@ -72,14 +72,14 @@ Every parallel repair started at `fe92c5b1a4aeddf4b8fdf893c37f7ccbeec81cb3`. Fol
 | R10    | `9599bf4b047b171a2891f3c8d7a7784fde635472` | `24a545558514adf9aec9dc058fdfff2015d0e1e6` | Scoped credentials plus R14-compatible replacement test                      |
 | R11    | `1a97cb6627a3e3dcea16e3fc02589f03fdf8a108` | `f79377c081d4df1c3abacd872834941207b83593` | Runtime-only multipart progress plus recoverable Spectrum receipt port       |
 | R12    | `739d848151389c3fdf48217dacb0047569525e29` | `ed2ea311a65560c4fc2b1a6e268e69fada40fe5d` | Authenticated Photon host and fail-closed registry                           |
-| R13    | `e7bc30ad4d1f613edff2bf0aeb7e521dd31d781d` | `b7799d930d5feefb51bcf03b1a4322fec419bedf` | Repair provenance and exact integration-resolution enforcement               |
+| R13    | `d49ff2dc7919fbff405d6c620544d994cfa640c4` | `fb60ba1e352804c6cc68aae02585a38131259d6a` | Repair provenance, coordinator identity, and exact resolution enforcement     |
 | R14    | `fbb39aad79628665e09a42da56f4ea4238e5c1fc` | `ebff3833de4c5263828a4ad73c68b937c7aa5c31` | Durable cross-mode physical-line ownership                                   |
 
 ## Integration joins and resolutions
 
-R15 was rebuilt after the final R01-R14 heads so its dependency ancestry is explicit. Its base is `0e02684f6b8c6d8df39bd8fd651921afe6f39d29`, contribution is `28f0a6d123259992860bc8134c23acdc2d2d20e0`, and coordinator merge is `934c5c613305bcd2f19ba1d24c96db602170fbaa`.
+R15 was rebuilt after the final R01-R14 heads so its dependency ancestry is explicit. Its base is `e4c4fe2c8b55888375b3e15102dae3099dfe9633`, contribution is `62d47dea7c58baa7b25504b30edf01f8db708bf9`, and coordinator merge is `f3d9c43fe83f9a9fa07b2064960e752a86606f0e`.
 
-R16 starts from the final R15 contribution. Its base is `28f0a6d123259992860bc8134c23acdc2d2d20e0`, contribution is `b6c06325f9ce2f55025de3a72270caaec039237a`, and coordinator merge is `4b6b5cd8db95c6725dff174409d07ec0d2004855`.
+R16 starts from the final R15 contribution. Its base is `62d47dea7c58baa7b25504b30edf01f8db708bf9`, contribution is `6a09fa2fb1435977d5878e41b118ec114f05313c`, and coordinator merge is `2f7974f533290389c27a83bad93289b184035a7b`.
 
 Two original-lane test corrections are separately recorded by exact base, commit, path, and repair ancestry in `checkpoint-1-input.json`:
 
@@ -99,7 +99,7 @@ Two original-lane test corrections are separately recorded by exact base, commit
 - Combined repair PostgreSQL union: 34 passed, 0 failed, 0 skipped across selected-session CAS, receipt recovery, delivery recovery/progress, ciphertext state, DM backlinks, migrations/grants, and line ownership. Each suite created its own disposable database and ran serially.
 - Photon package suite after the recorded integration resolutions: 178 passed, 0 failed, 0 skipped.
 - Core composition, source authentication, Photon routes, and ordinary route authorization: 27 passed, 0 failed.
-- R13 repair tooling before integration input capture: 53 passed, 0 failed.
+- R13 repair tooling before integration input capture: 54 passed, 0 failed.
 - Root and Photon typechecks passed before documentation capture.
 - The production-shaped dev launcher could not claim a Slack app because every local pool slot was occupied. No live Slack or production-shaped browser result is claimed.
 
