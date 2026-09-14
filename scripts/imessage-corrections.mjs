@@ -207,9 +207,15 @@ function requiredTestsFor(entry) {
 
 export function validateRepairProvenance({ root, main, target, checkpoint, ownership }) {
   const declared = checkpoint.repairContributions;
+  const declaredResolutions = checkpoint.integrationResolutions;
   if (declared !== undefined && !Array.isArray(declared)) throw new Error("REPAIR_CONTRIBUTIONS_INVALID");
+  if (declaredResolutions !== undefined && !Array.isArray(declaredResolutions)) {
+    throw new Error("INTEGRATION_RESOLUTIONS_INVALID");
+  }
   if (ownership.checkpointRepairs?.ownership === undefined) {
-    if ((declared ?? []).length > 0) throw new Error("REPAIR_PROFILE_MISSING");
+    if ((declared ?? []).length > 0 || (declaredResolutions ?? []).length > 0) {
+      throw new Error("REPAIR_PROFILE_MISSING");
+    }
     return {
       contributions: [],
       paths: [],
@@ -221,7 +227,9 @@ export function validateRepairProvenance({ root, main, target, checkpoint, owner
   const targetCommit = exactCommit(main, target, "REPAIR_TARGET");
   const profile = readRepairOwnership(root, main, ownership, targetCommit);
   if (!profile.active) {
-    if ((declared ?? []).length > 0) throw new Error(`REPAIR_BASE_NOT_ANCESTOR:${profile.repairBase}`);
+    if ((declared ?? []).length > 0 || (declaredResolutions ?? []).length > 0) {
+      throw new Error(`REPAIR_BASE_NOT_ANCESTOR:${profile.repairBase}`);
+    }
     return {
       contributions: [],
       paths: [],
@@ -298,6 +306,92 @@ export function validateRepairProvenance({ root, main, target, checkpoint, owner
         throw new Error(`REPAIR_DEPENDENCY_MISSING:${contribution.repairId}:${dependencyId}`);
       }
     }
+  }
+  const resolutionIds = new Set();
+  const resolutionPaths = new Set();
+  for (const resolution of declaredResolutions ?? []) {
+    const expectedKeys = ["baseCommit", "commit", "dependsOn", "id", "ownedPaths"];
+    if (
+      resolution === null ||
+      typeof resolution !== "object" ||
+      JSON.stringify(Object.keys(resolution).sort()) !== JSON.stringify(expectedKeys)
+    ) {
+      throw new Error("INTEGRATION_RESOLUTION_SCHEMA_INVALID");
+    }
+    const { id, ownedPaths, dependsOn: dependencyIds } = resolution;
+    if (typeof id !== "string" || !/^[a-z0-9][a-z0-9-]*$/u.test(id) || ids.has(id) || resolutionIds.has(id)) {
+      throw new Error(`INTEGRATION_RESOLUTION_ID_INVALID:${id}`);
+    }
+    if (
+      !Array.isArray(ownedPaths) ||
+      ownedPaths.length === 0 ||
+      ownedPaths.some(
+        (path) =>
+          typeof path !== "string" ||
+          path.length === 0 ||
+          path.includes("\0") ||
+          isAbsolute(path) ||
+          /[*?[\\]/u.test(path) ||
+          relative(root, resolve(root, path)) !== path,
+      ) ||
+      JSON.stringify(ownedPaths) !== JSON.stringify([...new Set(ownedPaths)].sort())
+    ) {
+      throw new Error(`INTEGRATION_RESOLUTION_PATHS_INVALID:${id}`);
+    }
+    if (
+      !Array.isArray(dependencyIds) ||
+      dependencyIds.length === 0 ||
+      dependencyIds.some((dependencyId) => typeof dependencyId !== "string" || !/^r[0-9]{2}$/u.test(dependencyId)) ||
+      JSON.stringify(dependencyIds) !== JSON.stringify([...new Set(dependencyIds)].sort())
+    ) {
+      throw new Error(`INTEGRATION_RESOLUTION_DEPENDENCIES_INVALID:${id}`);
+    }
+    const baseCommit = exactCommit(main, resolution.baseCommit, `INTEGRATION_RESOLUTION_BASE_${id}`);
+    const commit = exactCommit(main, resolution.commit, `INTEGRATION_RESOLUTION_COMMIT_${id}`);
+    if (
+      commit === baseCommit ||
+      commits.has(commit) ||
+      !isAncestor(main, repairBase, baseCommit) ||
+      !isAncestor(main, baseCommit, commit) ||
+      !isAncestor(main, commit, targetCommit)
+    ) {
+      throw new Error(`INTEGRATION_RESOLUTION_ANCESTRY:${id}`);
+    }
+    for (const dependencyId of dependencyIds) {
+      const dependency = contributions.find((contribution) => contribution.repairId === dependencyId);
+      if (dependency === undefined || !isAncestor(main, dependency.commit, baseCommit)) {
+        throw new Error(`INTEGRATION_RESOLUTION_DEPENDENCY_MISSING:${id}:${dependencyId}`);
+      }
+    }
+    const changed = changedPaths(main, baseCommit, commit);
+    if (JSON.stringify(changed) !== JSON.stringify(ownedPaths)) {
+      throw new Error(`INTEGRATION_RESOLUTION_CHANGED_PATHS_MISMATCH:${id}:${changed.join(",")}`);
+    }
+    for (const path of ownedPaths) {
+      if (resolutionPaths.has(path)) throw new Error(`INTEGRATION_RESOLUTION_PATH_CONFLICT:${path}`);
+      if (Object.values(allOwnership).some((entry) => entry.ownedPaths.some((pattern) => matches(path, pattern)))) {
+        throw new Error(`INTEGRATION_RESOLUTION_FROZEN_PATH:${id}:${path}`);
+      }
+      const laneOwners = Object.entries(ownership.lanes ?? {}).filter(
+        ([, lane]) => lane.wave !== "foundation" && lane.ownedPaths.some((pattern) => matches(path, pattern)),
+      );
+      if (laneOwners.length !== 1) {
+        throw new Error(`INTEGRATION_RESOLUTION_LANE_PATH_INVALID:${id}:${path}`);
+      }
+      requireSamePath(main, commit, targetCommit, path, `INTEGRATION_RESOLUTION_TARGET_DRIFT:${id}`);
+      resolutionPaths.add(path);
+    }
+    const repairId = `integration-resolution:${id}`;
+    resolutionIds.add(id);
+    commits.add(commit);
+    contributions.push({
+      repairId,
+      resolutionId: id,
+      baseCommit,
+      commit,
+      changedPaths: changed,
+      ownership: { dependsOn: dependencyIds, ownedPaths },
+    });
   }
   const dependsOn = (contribution, dependencyId) => {
     const pending = [...(contribution.ownership.dependsOn ?? [])];
