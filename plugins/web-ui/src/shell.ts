@@ -43,6 +43,8 @@ import { clearSkillsCache, resyncModelSelection, seedRuntimeConfig } from "./com
 import { ensureDeliveryStream, mainConversation, onExitCanvas } from "./conversations";
 import { clearAllDrafts, saveDraft, storedDraft } from "./drafts";
 import { deepLinkPath, isPlainLeftClick, parseDeepLink, UI_BASE } from "./deep-link";
+import { PHOTON_HOST_PATH, photonHostRequestFromQuery, type PhotonHostRequest } from "./photon/context";
+import { disposePhotonEntry, mountPhotonEntry } from "./photon/registry";
 import {
   adoptRemoteSplit,
   canvasToast,
@@ -127,6 +129,7 @@ function signOutFromMenu(): void {
 
 let authMode: AuthMode = "portal";
 let shellMounted = false;
+let bootEpoch = 0;
 
 setSigninRequiredHandler((detail) => {
   authMode = detail.mode ?? authMode;
@@ -148,6 +151,54 @@ export function syncUrlFromState(sessionOverride?: string | null): void {
   const sessionId = splitState.active ? null : fromState;
   const next = deepLinkPath(UI_BASE, appState.currentView, sessionId, contextsState.selected);
   if (`${location.pathname}${location.search}` !== next) history.replaceState(null, "", next);
+}
+
+function clearShellRefs(): void {
+  appState.topEl = null;
+  appState.listEl = null;
+  appState.mainEl = null;
+  footerEl = null;
+}
+
+function cancelBoot(): void {
+  bootEpoch++;
+  disposePhotonEntry();
+  clearShellRefs();
+}
+
+function photonPath(): string {
+  return `${UI_BASE}${PHOTON_HOST_PATH}`;
+}
+
+function isPhotonEntry(pathname: string): boolean {
+  return pathname === photonPath();
+}
+
+function photonRoot(): HTMLElement {
+  shellMounted = false;
+  const root = document.createElement("main");
+  root.className = "photon-entry";
+  root.setAttribute("aria-label", "QM");
+  root.style.blockSize = "100%";
+  root.style.minBlockSize = "0";
+  (appEl as HTMLElement).replaceChildren(root);
+  clearShellRefs();
+  return root;
+}
+
+function renderPhotonUnavailable(): void {
+  disposePhotonEntry();
+  const root = photonRoot();
+  const status = document.createElement("p");
+  status.setAttribute("role", "alert");
+  status.textContent = "This Photon view is unavailable.";
+  root.append(status);
+}
+
+function mountPhotonSurface(request: PhotonHostRequest, viewerId: string): void {
+  disposePhotonEntry();
+  const root = photonRoot();
+  mountPhotonEntry(root, request, viewerId);
 }
 
 const appEl = document.getElementById("app");
@@ -218,6 +269,7 @@ const ICON = {
 
 export async function signOut(): Promise<void> {
   const portal = authMode === "portal";
+  cancelBoot();
   if (!portal) {
     try {
       await api("/signout", { method: "POST" });
@@ -434,6 +486,7 @@ export type AuthGate =
   | { kind: "dev"; value?: string; error?: string; pending?: boolean };
 
 export function renderAuthGate(gate: AuthGate): void {
+  cancelBoot();
   shellMounted = false;
   const body = (() => {
     switch (gate.kind) {
@@ -456,6 +509,7 @@ function gateFor(mode: AuthMode, reason: "unauthenticated" | "not_allowed" | und
 }
 
 export function mountShell(): void {
+  disposePhotonEntry();
   applySavedSidebarWidth();
   const impersonatedBy = appState.me?.impersonatedBy ?? null;
   let banner: TemplateResult | typeof nothing = nothing;
@@ -919,7 +973,7 @@ window.addEventListener("popstate", () => {
 });
 
 window.addEventListener("focus", () => {
-  if (!appState.me) return;
+  if (!appState.me || isPhotonEntry(location.pathname)) return;
   if (appState.currentView === "contexts") void renderContexts();
   else if (appState.currentView === "chats") void refreshSessions({ silent: true, refreshContexts: true });
 });
@@ -945,58 +999,88 @@ function openAppEditChat(slug: string): void {
 }
 
 export async function bootSafely(): Promise<void> {
+  const epoch = ++bootEpoch;
   try {
-    await boot();
+    await boot(epoch);
   } catch (e) {
+    if (epoch !== bootEpoch) return;
     if (shellMounted) swallow("web-ui: boot", e);
     else renderAuthGate({ kind: "unreachable" });
   }
 }
 
-export async function boot(): Promise<void> {
+export async function boot(epoch = ++bootEpoch): Promise<void> {
+  if (epoch !== bootEpoch) return;
+  disposePhotonEntry();
   const params = new URLSearchParams(location.search);
-  const {
-    view: wanted,
-    session: wantedSession,
-    item: wantedItem,
-  } = parseDeepLink(UI_BASE, location.pathname, location.search);
+  const photonEntry = isPhotonEntry(location.pathname);
+  const deepLink = photonEntry
+    ? { view: null, session: null, item: null }
+    : parseDeepLink(UI_BASE, location.pathname, location.search);
+  const { view: wanted, session: wantedSession, item: wantedItem } = deepLink;
   const chatsLink = wanted === null || wanted === "chats";
   const linkedId = wantedSession && chatsLink ? wantedSession : null;
-  const entriesPrefetch = linkedId ? fetchTranscript(linkedId, { tailTurns: TAIL_TURNS }).catch(() => null) : null;
-  const approvalsPrefetch = linkedId ? fetchSessionApprovals(linkedId) : null;
-  const runtimeConfigFetch = fetchRuntimeConfig();
-  const remoteSplitFetch = fetchRemoteSplit();
+  const entriesPrefetch =
+    !photonEntry && linkedId ? fetchTranscript(linkedId, { tailTurns: TAIL_TURNS }).catch(() => null) : null;
+  const approvalsPrefetch = !photonEntry && linkedId ? fetchSessionApprovals(linkedId) : null;
+  const runtimeConfigFetch = photonEntry ? null : fetchRuntimeConfig();
+  const remoteSplitFetch = photonEntry ? null : fetchRemoteSplit();
 
   let r: Response;
   try {
     r = await webFetch(withBase("/me"));
   } catch {
+    if (epoch !== bootEpoch) return;
     renderAuthGate({ kind: "unreachable" });
     return;
   }
+  if (epoch !== bootEpoch) return;
   if (r.status === 401) {
     const body = (await r.json().catch(() => ({}))) as SigninRequired;
+    if (epoch !== bootEpoch) return;
     authMode = body.mode ?? "portal";
     renderAuthGate(gateFor(authMode, body.reason));
     return;
   }
   if (!r.ok) {
+    if (epoch !== bootEpoch) return;
     renderAuthGate({ kind: "unreachable" });
     return;
   }
   resetKeychainState();
-  appState.me = (await r.json()) as Me;
+  const me = (await r.json()) as Me;
+  if (epoch !== bootEpoch) return;
+  appState.me = me;
   authMode = appState.me.mode ?? "portal";
   clearPortalAttempt();
   if (appState.me.individualModelAuth && !appState.me.modelAuthConnected) {
+    cancelBoot();
     shellMounted = false;
     renderModelConnectGate();
     return;
   }
+  if (photonEntry) {
+    if (location.hash) {
+      renderPhotonUnavailable();
+      return;
+    }
+    let request: PhotonHostRequest;
+    try {
+      request = photonHostRequestFromQuery(new URLSearchParams(location.search));
+    } catch {
+      renderPhotonUnavailable();
+      return;
+    }
+    if (epoch !== bootEpoch) return;
+    mountPhotonSurface(request, appState.me.user);
+    return;
+  }
   const personalScope = `personal:${appState.me.user}`;
-  const prefetchedConfig = await runtimeConfigFetch;
+  const prefetchedConfig = await runtimeConfigFetch!;
+  if (epoch !== bootEpoch) return;
   const runtimeConfig =
     prefetchedConfig?.scopeId === personalScope ? prefetchedConfig : await fetchRuntimeConfig(personalScope);
+  if (epoch !== bootEpoch) return;
   if (runtimeConfig) {
     applyRuntimeOptions(
       personalScope,
@@ -1014,7 +1098,8 @@ export async function boot(): Promise<void> {
   warmDeferredChunks();
   void refreshInbox({ silent: true });
   loadPersistedSplit();
-  await adoptRemoteSplit(remoteSplitFetch);
+  await adoptRemoteSplit(remoteSplitFetch!);
+  if (epoch !== bootEpoch) return;
 
   const connectedProvider = params.get("status") === "connected" ? params.get("connector") : null;
   if (connectedProvider) markConnectorConnected(connectedProvider);

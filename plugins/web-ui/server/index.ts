@@ -14,6 +14,7 @@ import {
   type HttpMethod,
 } from "../../chassis/src/core-client.ts";
 import { findRoute } from "../../chassis/src/router.ts";
+import { createPhotonHostRoute } from "./photon-host.ts";
 import {
   json,
   gzipAccepted,
@@ -1040,7 +1041,20 @@ async function serveFileContent(c: WebCtx, playground = false): Promise<unknown>
   return Readable.fromWeb(r.body as Parameters<typeof Readable.fromWeb>[0]).pipe(res);
 }
 
+const photonHostRoute = createPhotonHostRoute({
+  registeredViews: [],
+  contributions: {
+    async forConversation() {
+      throw new Error("Photon host contributions unavailable");
+    },
+  },
+  async resolveAuthority() {
+    return null;
+  },
+});
+
 const apiRoutes: readonly WebRoute[] = [
+  photonHostRoute,
   {
     method: "GET",
     path: "/api/files/by-name/content",
