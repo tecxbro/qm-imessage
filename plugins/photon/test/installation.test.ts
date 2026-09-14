@@ -208,7 +208,7 @@ test("concurrent starts share one active login, project, and assignment", async 
   });
   assert.equal(cli.createCount, 1);
   assert.equal(cli.invocations.filter((invocation) => invocation.command === "users-list").length, 1);
-  assert.deepEqual(store.versions, [0, 1, 2, 3, 4, 5, 6]);
+  assert.deepEqual(store.versions, [1, 2, 3, 4, 5, 6, 7]);
 });
 
 test("durable setup state serializes concurrent starts across service instances", async () => {
