@@ -1,7 +1,13 @@
 import { randomUUID } from "node:crypto";
-import { createPgPool, type PgPool } from "../persistence/pg-pool.ts";
+import { isDeepStrictEqual } from "node:util";
+import { createPgPool, type PgPool, withPgTransaction } from "../persistence/pg-pool.ts";
 import type { Delivery, DeliveryProvenance, Destination, OutgoingAttachment } from "../types.ts";
-import { DELIVERY_MAX_AGE_MS, logDeliveryExpiry, type DeliveryStore } from "./delivery-store.ts";
+import {
+  DELIVERY_MAX_AGE_MS,
+  logDeliveryExpiry,
+  photonDmBacklinkForDestination,
+  type DeliveryStore,
+} from "./delivery-store.ts";
 import { cronIdOf, threadRefCronIdExpr } from "../sessions/session-store.ts";
 
 const NOW_MS_SQL = "(EXTRACT(EPOCH FROM clock_timestamp()) * 1000)::BIGINT";
@@ -40,7 +46,7 @@ function rowToDelivery(r: Record<string, unknown>): Delivery {
 
 export function createPostgresDeliveryStore(connectionString: string, opts?: { maxAgeMs?: number }): DeliveryStore {
   const maxAgeMs = opts?.maxAgeMs ?? DELIVERY_MAX_AGE_MS;
-  const { q, query } = createPgPool(connectionString, [
+  const { q, query, pool } = createPgPool(connectionString, [
     {
       id: "delivery/store/0001",
       statements: [
@@ -88,6 +94,10 @@ export function createPostgresDeliveryStore(connectionString: string, opts?: { m
         `SET LOCAL lock_timeout = '3s'`,
         `ALTER TABLE deliveries ADD COLUMN IF NOT EXISTS source_cron_id TEXT`,
       ],
+    },
+    {
+      id: "delivery/store/0007-photon-dm-backlinks",
+      statements: [`ALTER TABLE deliveries ADD COLUMN IF NOT EXISTS photon_dm_backlink JSONB`],
     },
   ]);
 
@@ -217,6 +227,33 @@ export function createPostgresDeliveryStore(connectionString: string, opts?: { m
     async get(id) {
       const rows = await q("SELECT * FROM deliveries WHERE id = $1", [id]);
       return rows[0] ? rowToDelivery(rows[0]) : null;
+    },
+    async recordPhotonDmBacklink(deliveryId, backlink) {
+      return withPgTransaction(await pool(), async (client) => {
+        const selected = await client.query<{ destination: Destination; photon_dm_backlink: unknown }>(
+          "SELECT destination, photon_dm_backlink FROM deliveries WHERE id = $1 FOR UPDATE",
+          [deliveryId],
+        );
+        const row = selected.rows[0];
+        if (!row) return "conflict";
+        const canonical = photonDmBacklinkForDestination(row.destination, backlink);
+        if (!canonical) return "conflict";
+        if (row.photon_dm_backlink !== null) {
+          const stored = photonDmBacklinkForDestination(row.destination, row.photon_dm_backlink);
+          return stored && isDeepStrictEqual(stored, canonical) ? "duplicate" : "conflict";
+        }
+        const updated = await client.query(
+          "UPDATE deliveries SET photon_dm_backlink = $2::jsonb WHERE id = $1 AND photon_dm_backlink IS NULL",
+          [deliveryId, JSON.stringify(canonical)],
+        );
+        return updated.rowCount === 1 ? "recorded" : "conflict";
+      });
+    },
+    async photonDmBacklink(deliveryId) {
+      const rows = await q("SELECT destination, photon_dm_backlink FROM deliveries WHERE id = $1", [deliveryId]);
+      const row = rows[0];
+      if (!row || row.photon_dm_backlink === null) return undefined;
+      return photonDmBacklinkForDestination(row.destination as Destination, row.photon_dm_backlink);
     },
     async recordRecipientThread(id, recipientThreadRef, at) {
       await query(
