@@ -41,9 +41,9 @@ import {
 import type {
   AdvancedIMessageProviderClientPort,
   DeliveryDispatchClaim,
-  EventReceiptStorePort,
   PhotonDeliveryDispatch,
   PhotonDeliveryProgressPort,
+  RecoverableEventReceiptStorePort,
   SpectrumProviderClientPort,
 } from "../ports.ts";
 import { operationRestriction, sameConversation, sameLine } from "./capabilities.ts";
@@ -675,7 +675,7 @@ function spectrumResult(
 
 export function createSpectrumProviderClient(
   connection: Extract<ProviderConnection, { kind: "spectrum" }>,
-  store: EventReceiptStorePort,
+  store: RecoverableEventReceiptStorePort,
   materialize: Materialize,
 ): SpectrumProviderClientPort {
   const sdk = narrowSpectrum(connection.sdk);
