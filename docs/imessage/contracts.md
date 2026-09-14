@@ -98,3 +98,9 @@ Universal Spectrum method presence does not prove iMessage support or recipient-
 ## Contract changes after the repair
 
 After the repaired foundation is frozen, these shared contracts and canonical iMessage documents are integration-owned. A feature lane records a needed correction in its lane document with pinned declaration or provider evidence. The integration owner updates the shared seam, runs the foundation regression tests, captures exact lane commits and bases, and obtains fresh-context review before a later checkpoint tag.
+
+Checkpoint 1 adopts separate service and persisted installation records. `InstallationRecord` contains private service state; `PhotonInstallationCiphertextRecord` is the only PostgreSQL representation. Current-session selection uses `ChatSessionSelectionStorePort` with a monotonically increasing transport version, while immutable message bindings continue to resolve original-session authority. Receipt and delivery recovery use bounded, scope-preserving cursor pages. Delivery dispatch requires an exact owner, fence, expiry, attempt, and injected time; expired or unknown writes become ambiguous.
+
+Provider delivery receives multipart progress through a non-enumerable in-process callback that is never serialized. Physical-line ownership is keyed by installation and line rather than provider mode. The source-signed core link still proves only the adapter process; the real QM authorization layer resolves the canonical human, current or original session, revisions, membership, and actions against the existing App, run store, and delivery store.
+
+The base receipt and delivery declarations remain available only for older fixtures that do not execute recovery. The production PostgreSQL aggregate and assembled provider paths require the recoverable ports. Obsolete plaintext installation persistence and unfenced delivery completion are not part of the adopted runtime.

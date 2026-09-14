@@ -42,3 +42,11 @@ Source authentication protects the plugin-to-core request. Human identity and po
 ## Evidence boundary
 
 The foundation records what pinned public declarations and committed Photon documentation can represent. It does not implement provider adapters, PostgreSQL storage, CLI onboarding, production routes, or UI features. It creates no Photon account, project, installation, line, credential, message, delivery, receipt, interaction, or device rendering. Unsupported and ambiguous outcomes remain explicit.
+
+## Checkpoint 1 repair integration
+
+The repaired integration keeps one existing QM `App`, run store, delivery store, Slack core, agent loop, and web surface. A narrow core composition wraps the restricted ciphertext installation store, constructs the existing Photon authorization and core client against those QM objects, and forwards that exact client into the existing server dependencies. The migration registrar uses the privileged core pool; runtime stores are explicit dependencies and never receive that pool.
+
+The provider composition resolves a scoped credential before SDK construction, acquires one durable physical-line lease, and constructs one connection. Spectrum intake reads the recoverable receipt store. Outbound dispatch uses the recoverable delivery store and a runtime-only progress callback before subsequent multipart writes. The adapter calls QM through the existing source-signed HTTP client. No second QM app, transcript, agent, queue, scheduler, or model loop is created.
+
+Production activation is intentionally unavailable without a real canonical identity producer, Photon destination resolver, separate restricted database credentials, retained installation keyring, and source-signing configuration. Advanced intake remains unavailable. Static Photon route registration returns explicit unavailable responses when composition is absent; conditional route registration requires the separate server-table change recorded by R09. Structured Photon destination authority is not propagated through the orchestrator until the R06 cross-boundary blocker is resolved.

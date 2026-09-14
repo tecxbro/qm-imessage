@@ -350,15 +350,21 @@ The coordinator owns one additive `photon/state/0002` migration for selected-ses
 
 The checkpoint preparation moves the existing implementations without changing their aggregate keys or behavior:
 
-- R02: `chatSessions` is at `plugins/chassis/src/photon-state/bindings.ts:24-55`; `messages` is at lines 57-140; their single aggregate is at lines 23-142.
-- R03: `finishSequenced` is at `plugins/chassis/src/photon-state/receipts.ts:42-140`; the `receipts` implementation is at lines 142-294; its single aggregate is at lines 41-295.
-- R04: `persistDelivery` is at `plugins/chassis/src/photon-state/deliveries.ts:95-138`; `loadDelivery` is at lines 140-178; the `deliveries` implementation is at lines 181-326; its single aggregate is at lines 180-327.
+- R02: `chatSessions` is at `plugins/chassis/src/photon-state/bindings.ts:50-121`; `messages` is at lines 123-205; their aggregate returns at line 207.
+- R03: `finishSequenced` is at `plugins/chassis/src/photon-state/receipts.ts:56-151`; `createPhotonReceiptStore()` spans lines 55-382.
+- R04: `persistDelivery` starts at `plugins/chassis/src/photon-state/deliveries.ts:136`; `loadDelivery` starts at line 189; `createPhotonDeliveryStore()` spans lines 265-639.
 - Coordinator: database protocol types live at `plugins/chassis/src/photon-state/db.ts:1-15`; genuinely shared helpers live at `plugins/chassis/src/photon-state/shared.ts:1-80`; `createPostgresPhotonStateStores()` remains at `plugins/chassis/src/photon-state.ts:55-548`.
 
-`createPostgresPhotonStateStores()` remains the only aggregate constructor and returns the same public store keys. No QM business store, scheduler, agent, queue, or second runtime is introduced.
+`createPostgresPhotonStateStores()` remains the only aggregate constructor. Final integration adopts the required recoverable receipt and delivery ports, ciphertext installation persistence, selected-session CAS, and the additive `lineOwners` store. The obsolete delivery transition and plaintext installation persistence are removed rather than kept as a second runtime graph. No QM business store, scheduler, agent, queue, or second runtime is introduced.
 
 Destructive PostgreSQL suites use `test/helpers/cp1-postgres.ts` to create a uniquely named disposable database. `CP1_POSTGRES_ADMIN_URL` must name an administrative database on a disposable PostgreSQL test cluster and its role must be a superuser because the suite creates a database, creates cluster roles, switches roles, and terminates test connections. Cluster-wide role creation runs under the helper's advisory lock. `CP1_REQUIRE_POSTGRES=1` turns an absent `CP1_POSTGRES_ADMIN_URL` into a failing prerequisite instead of a skip. CI supplies both values explicitly and registers the state suite in `test:pg`.
 
 ## Repair provenance
 
 R13 resolves `cp1-repair-dispatch.json` from `git rev-parse --git-common-dir`, validates its schema against `repairBaseResolution` in `docs/imessage/repairs/ownership.json`, and accepts independent sibling repair commits when each declared diff is reachable from its exact 40-character `repairBaseCommit` and present in the candidate. Every `cp1/r01` through `cp1/r14` branch starts at that exact commit before its first repair change. It rejects a missing or moving base record, missing ancestry, undeclared paths, overlapping changes without an explicit dependency or resolution record, checkpoint mutation, and merge-resolution changes not attributable to a declared repair or coordinator resolution. Reachable historical WT01 through WT06 commits are sufficient; their old worktree directories are not inputs.
+
+## Final adopted integration
+
+The final aggregate exposes `PhotonInstallationCiphertextStore`, `ChatSessionSelectionStorePort`, `RecoverableEventReceiptStorePort`, `RecoverableDeliveryOperationStorePort`, and `PhotonLineOwnerStore`. The service-facing installation adapter remains the only component that decrypts an `InstallationRecord`. Delivery completion requires the exact owner, fence, expiry, attempt, and injected timestamp. The non-enumerable multipart callback exists only on the live dispatch object.
+
+`photon/state/0001` remains byte-identical. `photon/state/0002` adds selection versioning, dispatch owner/fence/expiry and recovery indexes, and physical-line ownership. R08 separately owns `delivery/store/0007-photon-dm-backlinks` in the existing QM delivery-store migration sequence. All PostgreSQL repair tests use distinct disposable databases and serialized destructive execution.

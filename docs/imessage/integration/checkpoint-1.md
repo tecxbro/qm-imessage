@@ -53,3 +53,62 @@ This record proves local extraction, type, lint, ownership, migration, and Postg
 ## Repair ledger
 
 R01-R14 heads, review results, merge SHAs, focused tests, cross-boundary tests, composition decisions, and blockers are appended here during integration. Original WT01-WT06 contribution records remain unchanged.
+
+## Integrated repair contributions
+
+Every parallel repair started at `fe92c5b1a4aeddf4b8fdf893c37f7ccbeec81cb3`. Follow-up commits on R10, R11, and R13 stayed on their original registered branches and within their frozen ownership.
+
+| Repair | Captured head                              | Coordinator merge containing final head    | Focused evidence                                                             |
+| ------ | ------------------------------------------ | ------------------------------------------ | ---------------------------------------------------------------------------- |
+| R01    | `ada9223c8ca16644fb4f2f744a3cf7c4d861053e` | `4df1524ab954e8df435bcd15088b52294ab6506d` | Encrypted installation adapter, restart and tamper cases                     |
+| R02    | `738cf3aafc689654f05bace39fb257e9a54c4cc1` | `46d0bb3fa77e46c68affab64b4bf606400bab474` | 14 PostgreSQL selection/CAS cases                                            |
+| R03    | `c1732738688736a2c88cd31b5187b1052de7cf2d` | `951dad235a61cdd49c5e936cedc352d8bebbb647` | Bounded receipt discovery and provider recovery                              |
+| R04    | `43dac5975f3212f5544ef84ec749b22dfcb10dfc` | `0448914e2d74f0d265c2e128bd494a4354b0beda` | Exact fenced delivery recovery                                               |
+| R05    | `fcd24ef6ee4031da0c0239961a38f9a7a0719ecd` | `ff432fb7d026179798f04331bac20b06b8a149f3` | Historical message/action session authority                                  |
+| R06    | `5a6cecdbfe54f651d757da3e9b5901c518833255` | `7df32371b08072fc316d5907fe7af5ab5be87a19` | Structured Photon destination projection                                     |
+| R07    | `7fd1075396091e3e1a7113df83f6a5e3e74ee7b4` | `10dae5840662fa457f5efd577ab868fbefc227e9` | Reach preflight and no-work denial                                           |
+| R08    | `7ff0886926fb74c3f5bfab08caf37c91fbdb6383` | `09d18f3cb427230ed9bb0a2c595e5757c9826bf6` | Durable DM backlinks and migration `delivery/store/0007-photon-dm-backlinks` |
+| R09    | `4ef3b4763f71afeaddd86c81a55a2311bbde7481` | `28f21f3c925d79337990faf2314bbd278c60d62a` | Source-auth route registration and explicit unavailable state                |
+| R10    | `9599bf4b047b171a2891f3c8d7a7784fde635472` | `24a545558514adf9aec9dc058fdfff2015d0e1e6` | Scoped credentials plus R14-compatible replacement test                      |
+| R11    | `1a97cb6627a3e3dcea16e3fc02589f03fdf8a108` | `f79377c081d4df1c3abacd872834941207b83593` | Runtime-only multipart progress plus recoverable Spectrum receipt port       |
+| R12    | `739d848151389c3fdf48217dacb0047569525e29` | `ed2ea311a65560c4fc2b1a6e268e69fada40fe5d` | Authenticated Photon host and fail-closed registry                           |
+| R13    | `e7bc30ad4d1f613edff2bf0aeb7e521dd31d781d` | `b7799d930d5feefb51bcf03b1a4322fec419bedf` | Repair provenance and exact integration-resolution enforcement               |
+| R14    | `fbb39aad79628665e09a42da56f4ea4238e5c1fc` | `ebff3833de4c5263828a4ad73c68b937c7aa5c31` | Durable cross-mode physical-line ownership                                   |
+
+## Integration joins and resolutions
+
+R15 was rebuilt after the final R01-R14 heads so its dependency ancestry is explicit. Its base is `0e02684f6b8c6d8df39bd8fd651921afe6f39d29`, contribution is `28f0a6d123259992860bc8134c23acdc2d2d20e0`, and coordinator merge is `934c5c613305bcd2f19ba1d24c96db602170fbaa`.
+
+R16 starts from the final R15 contribution. Its base is `28f0a6d123259992860bc8134c23acdc2d2d20e0`, contribution is `b6c06325f9ce2f55025de3a72270caaec039237a`, and coordinator merge is `4b6b5cd8db95c6725dff174409d07ec0d2004855`.
+
+Two original-lane test corrections are separately recorded by exact base, commit, path, and repair ancestry in `checkpoint-1-input.json`:
+
+- WT02 installation versions: base `00dbd868c279dacb41ff09f3ee6a186682942cbf`, commit `173d51700dc4ac2b2586e622e86d355eac1390d6`, dependency R01.
+- WT04 provider ownership/progress: base `47243c99d18f82093832d428152f4c82867d2e27`, commit `3ff591cd4397ceb667f75a327a40db4ace7f1363`, dependencies R11 and R14.
+
+## Composition decisions
+
+- The PostgreSQL aggregate persists only installation ciphertext and exposes the required selected-session, recoverable receipt, recoverable delivery, and physical-line owner stores.
+- The existing privileged core pool registers `photon/state/0001` and `photon/state/0002`; no privileged pool is passed into the adapter composition.
+- R15 uses the existing QM App, runs, deliveries, authorization, and server dependency object. Slack and ordinary web behavior retain their existing instances.
+- R16 resolves a scoped credential before one provider SDK, holds one durable line lease, uses an exact delivery claim and runtime-only progress callback, and creates the existing source-signed QM client per normalized source.
+- Advanced inbound and every missing producer remain explicit unavailable states. No fake successful identity, inbound, delivery, native, or view handler was added.
+
+## Integrated verification evidence
+
+- Combined repair PostgreSQL union: 34 passed, 0 failed, 0 skipped across selected-session CAS, receipt recovery, delivery recovery/progress, ciphertext state, DM backlinks, migrations/grants, and line ownership. Each suite created its own disposable database and ran serially.
+- Photon package suite after the recorded integration resolutions: 178 passed, 0 failed, 0 skipped.
+- Core composition, source authentication, Photon routes, and ordinary route authorization: 27 passed, 0 failed.
+- R13 repair tooling before integration input capture: 53 passed, 0 failed.
+- Root and Photon typechecks passed before documentation capture.
+- The production-shaped dev launcher could not claim a Slack app because every local pool slot was occupied. No live Slack or production-shaped browser result is claimed.
+
+## Open activation blockers
+
+- No production canonical Photon identity producer is configured.
+- No production Photon destination resolver crosses the current orchestrator candidate-erasure boundary.
+- No separately authenticated adapter/core-link runtime database DSNs or retained installation wrapping-key configuration are present.
+- The static server route table cannot conditionally omit Photon routes; absent composition returns explicit `503` unavailable.
+- Advanced inbound remains unavailable, and no provider acceptance, delivery/read, native presentation, deployment, release, or physical-device evidence exists.
+
+`checkpoint-1-input.json` is the repair-aware working record. `checkpoint-1.json` is deliberately absent: no authorized `qm-imessage-f1` tag exists, and this assignment forbids creating one. Wave B has not been prepared.

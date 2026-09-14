@@ -1,0 +1,173 @@
+{
+  "schemaVersion": 1,
+  "inputBaseCommit": "17f7e09f8f1549766e64f995b019f7f7e14d5781",
+  "laneContributions": [
+    {
+      "laneId": "wt-01",
+      "baseCommit": "17f7e09f8f1549766e64f995b019f7f7e14d5781",
+      "commit": "89692afd497ac7f633e64ac0d793e34cdcfef656"
+    },
+    {
+      "laneId": "wt-02",
+      "baseCommit": "17f7e09f8f1549766e64f995b019f7f7e14d5781",
+      "commit": "81cd2c7745bf5bf78ef478733eda57852c199ece"
+    },
+    {
+      "laneId": "wt-03",
+      "baseCommit": "17f7e09f8f1549766e64f995b019f7f7e14d5781",
+      "commit": "b3b29ceceae088ff4575d3a3c28b0582a7e88ee4"
+    },
+    {
+      "laneId": "wt-04",
+      "baseCommit": "17f7e09f8f1549766e64f995b019f7f7e14d5781",
+      "commit": "bde09480e061230968b389db1e63f0bf00bfe28d"
+    },
+    {
+      "laneId": "wt-05",
+      "baseCommit": "17f7e09f8f1549766e64f995b019f7f7e14d5781",
+      "commit": "443f6bf83446117a9d562562ad38898671d8ced2"
+    },
+    {
+      "laneId": "wt-06",
+      "baseCommit": "17f7e09f8f1549766e64f995b019f7f7e14d5781",
+      "commit": "9c0a286e1aeb17485c6517be0ea6fd72d95b089a"
+    }
+  ],
+  "repairContributions": [
+    {
+      "repairId": "r01",
+      "baseCommit": "fe92c5b1a4aeddf4b8fdf893c37f7ccbeec81cb3",
+      "commit": "ada9223c8ca16644fb4f2f744a3cf7c4d861053e"
+    },
+    {
+      "repairId": "r02",
+      "baseCommit": "fe92c5b1a4aeddf4b8fdf893c37f7ccbeec81cb3",
+      "commit": "738cf3aafc689654f05bace39fb257e9a54c4cc1"
+    },
+    {
+      "repairId": "r03",
+      "baseCommit": "fe92c5b1a4aeddf4b8fdf893c37f7ccbeec81cb3",
+      "commit": "c1732738688736a2c88cd31b5187b1052de7cf2d"
+    },
+    {
+      "repairId": "r04",
+      "baseCommit": "fe92c5b1a4aeddf4b8fdf893c37f7ccbeec81cb3",
+      "commit": "43dac5975f3212f5544ef84ec749b22dfcb10dfc"
+    },
+    {
+      "repairId": "r05",
+      "baseCommit": "fe92c5b1a4aeddf4b8fdf893c37f7ccbeec81cb3",
+      "commit": "fcd24ef6ee4031da0c0239961a38f9a7a0719ecd"
+    },
+    {
+      "repairId": "r06",
+      "baseCommit": "fe92c5b1a4aeddf4b8fdf893c37f7ccbeec81cb3",
+      "commit": "5a6cecdbfe54f651d757da3e9b5901c518833255"
+    },
+    {
+      "repairId": "r07",
+      "baseCommit": "fe92c5b1a4aeddf4b8fdf893c37f7ccbeec81cb3",
+      "commit": "7fd1075396091e3e1a7113df83f6a5e3e74ee7b4"
+    },
+    {
+      "repairId": "r08",
+      "baseCommit": "fe92c5b1a4aeddf4b8fdf893c37f7ccbeec81cb3",
+      "commit": "7ff0886926fb74c3f5bfab08caf37c91fbdb6383"
+    },
+    {
+      "repairId": "r09",
+      "baseCommit": "fe92c5b1a4aeddf4b8fdf893c37f7ccbeec81cb3",
+      "commit": "4ef3b4763f71afeaddd86c81a55a2311bbde7481"
+    },
+    {
+      "repairId": "r10",
+      "baseCommit": "fe92c5b1a4aeddf4b8fdf893c37f7ccbeec81cb3",
+      "commit": "9599bf4b047b171a2891f3c8d7a7784fde635472"
+    },
+    {
+      "repairId": "r11",
+      "baseCommit": "fe92c5b1a4aeddf4b8fdf893c37f7ccbeec81cb3",
+      "commit": "1a97cb6627a3e3dcea16e3fc02589f03fdf8a108"
+    },
+    {
+      "repairId": "r12",
+      "baseCommit": "fe92c5b1a4aeddf4b8fdf893c37f7ccbeec81cb3",
+      "commit": "739d848151389c3fdf48217dacb0047569525e29"
+    },
+    {
+      "repairId": "r13",
+      "baseCommit": "fe92c5b1a4aeddf4b8fdf893c37f7ccbeec81cb3",
+      "commit": "e7bc30ad4d1f613edff2bf0aeb7e521dd31d781d"
+    },
+    {
+      "repairId": "r14",
+      "baseCommit": "fe92c5b1a4aeddf4b8fdf893c37f7ccbeec81cb3",
+      "commit": "fbb39aad79628665e09a42da56f4ea4238e5c1fc"
+    },
+    {
+      "repairId": "r15",
+      "baseCommit": "0e02684f6b8c6d8df39bd8fd651921afe6f39d29",
+      "commit": "28f0a6d123259992860bc8134c23acdc2d2d20e0"
+    },
+    {
+      "repairId": "r16",
+      "baseCommit": "28f0a6d123259992860bc8134c23acdc2d2d20e0",
+      "commit": "b6c06325f9ce2f55025de3a72270caaec039237a"
+    }
+  ],
+  "integrationResolutions": [
+    {
+      "id": "wt02-r01-installation-version-test",
+      "baseCommit": "00dbd868c279dacb41ff09f3ee6a186682942cbf",
+      "commit": "173d51700dc4ac2b2586e622e86d355eac1390d6",
+      "ownedPaths": ["plugins/photon/test/installation.test.ts"],
+      "dependsOn": ["r01"]
+    },
+    {
+      "id": "wt04-r11-r14-provider-tests",
+      "baseCommit": "47243c99d18f82093832d428152f4c82867d2e27",
+      "commit": "3ff591cd4397ceb667f75a327a40db4ace7f1363",
+      "ownedPaths": ["plugins/photon/test/provider.test.ts"],
+      "dependsOn": ["r11", "r14"]
+    }
+  ],
+  "testFiles": [
+    "plugins/photon/test/cli-process.test.ts",
+    "plugins/photon/test/contracts.test.ts",
+    "plugins/photon/test/credentials.test.ts",
+    "plugins/photon/test/installation-store.test.ts",
+    "plugins/photon/test/installation.test.ts",
+    "plugins/photon/test/line-owner.test.ts",
+    "plugins/photon/test/multipart-progress.test.ts",
+    "plugins/photon/test/provider-compatibility.test.ts",
+    "plugins/photon/test/provider-recovery.test.ts",
+    "plugins/photon/test/provider.test.ts",
+    "plugins/photon/test/qm-client.test.ts",
+    "plugins/photon/test/runtime-composition.test.ts",
+    "plugins/photon/test/state.test.ts",
+    "plugins/web-ui/test/photon-host.test.ts",
+    "plugins/web-ui/test/photon-registration.test.ts",
+    "test/capability-destination-photon.test.ts",
+    "test/imessage-foundation-ownership.test.ts",
+    "test/imessage-foundation-sources.test.ts",
+    "test/imessage-foundation-tooling.test.ts",
+    "test/imessage-repair-tooling.test.ts",
+    "test/photon-context.test.ts",
+    "test/photon-core-client.test.ts",
+    "test/photon-core-composition.test.ts",
+    "test/photon-delivery-backlinks.test.ts",
+    "test/photon-destinations.test.ts",
+    "test/photon-line-owner-postgres.test.ts",
+    "test/photon-original-session-authorization.test.ts",
+    "test/photon-revisions.test.ts",
+    "test/photon-route-registration.test.ts",
+    "test/photon-source-auth.test.ts",
+    "test/photon-state-bindings.test.ts",
+    "test/photon-state-delivery-recovery.test.ts",
+    "test/photon-state-postgres.test.ts",
+    "test/photon-state-receipt-recovery.test.ts",
+    "test/postgres-photon-delivery-backlinks.test.ts",
+    "test/reach-photon-preflight.test.ts"
+  ],
+  "typecheckPackages": [".", "plugins/photon", "plugins/web-ui"]
+}

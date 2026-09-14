@@ -61,3 +61,11 @@ The corrective pass uses `docs/imessage/integration/foundation-repair-input.json
 8. Observed on a physical device, including interaction and rendering.
 
 No lower level implies a higher one. Foundation fixtures do not prove PostgreSQL recovery, CLI login, provider compatibility, delivery, read state, or device behavior.
+
+## Controlled checkpoint 1 repairs
+
+The original f0-r2 and Wave A history remains unchanged. Checkpoint 1 repairs use the external Git-common-dir dispatch record and `docs/imessage/repairs/ownership.json`. Each `cp1/r01` through `cp1/r14` worktree starts at the separately captured preparation commit, stays registered at its exact contained path, and contributes an exact tested SHA. The checkpoint input records the original WT01-WT06 contributions, every repair contribution, the R15/R16 integration joins, and any explicit same-path integration resolution.
+
+Repair verification derives changed paths from Git and checks the frozen ownership, captured base, registered clean worktree, dependency ancestry, final blob, and complete test union. A path touched by more than one contribution requires a declared dependency chain. An original lane test adjusted only because a repair changed its production contract requires a separate exact integration-resolution record; it cannot be hidden as coordinator drift.
+
+Wave B is not prepared until a clean candidate passes the repair-aware integration gate and an authorized `qm-imessage-f1` tag exists. `checkpoint-1-input.json` is a mutable working input. `checkpoint-1.json` is created only as the immutable external record of that verified tag target.
