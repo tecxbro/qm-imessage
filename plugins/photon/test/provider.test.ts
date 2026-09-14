@@ -23,18 +23,55 @@ import {
   createAdvancedProviderClient,
   createSpectrumProviderClient,
   observeAdvancedMessage,
+  withPhotonDeliveryRuntimeProgress,
 } from "../src/provider/clients.ts";
 import { constructAdvanced, narrowSpectrum, type SpectrumSpace } from "../src/provider/compatibility.ts";
 import { createConnectionManager } from "../src/provider/connection.ts";
+import type { ProviderLineOwnership } from "../src/provider/line-owner.ts";
 import { operationRestriction, type ProviderLine } from "../src/provider/capabilities.ts";
 import { eventKey, startProviderIntake } from "../src/provider/recovery.ts";
 import { normalizeAdvancedEvent, normalizeSpectrumMessage } from "../src/provider/subscriptions.ts";
+import type { PhotonDeliveryRuntimeProgress } from "../src/provider/clients.ts";
 import { FakeEventReceiptStore } from "./fixtures.ts";
 
 const timestamp = new Date("2026-09-12T12:00:00.000Z");
 const phone = "+15550000001";
 const chatGuid = "any;+;test-group";
 const credentials = { address: "127.0.0.1:1", token: "offline-token" };
+
+function testOwnership(): ProviderLineOwnership {
+  return {
+    async acquire(key) {
+      let active = true;
+      return {
+        claim: {
+          key,
+          ownerId: randomUUID(),
+          fence: 1,
+          leaseExpiresAt: "9999-12-31T23:59:59.999Z",
+        },
+        assertActive() {
+          if (!active) throw new Error("PROVIDER_LINE_OWNERSHIP_LOST");
+        },
+        async release() {
+          active = false;
+          return true;
+        },
+      };
+    },
+  };
+}
+
+function runtimeProgress(): PhotonDeliveryRuntimeProgress {
+  return {
+    claim: { ownerId: "dispatch-owner", fence: 1, leaseExpiresAt: "9999-12-31T23:59:59.999Z" },
+    now: () => "2026-09-14T12:00:00.000Z",
+    port: {
+      async assertCanContinue() {},
+      async recordConfirmedPart() {},
+    },
+  };
+}
 
 function line(): ProviderLine {
   return {
@@ -197,12 +234,15 @@ async function harness(scope = line()) {
   mock.method(sdk.chats, "get", async () => chat());
   mock.method(sdk.messages, "get", async (guid: string) => message({ guid, isFromMe: true }));
   mock.method(sdk.polls, "get", async () => poll());
-  const manager = createConnectionManager({
-    advanced: () => sdk,
-    spectrum: async () => {
-      throw new Error("unexpected-spectrum");
+  const manager = createConnectionManager(
+    {
+      advanced: () => sdk,
+      spectrum: async () => {
+        throw new Error("unexpected-spectrum");
+      },
     },
-  });
+    testOwnership(),
+  );
   const connection = await manager.replace(scope, credentials);
   assert.equal(connection.kind, "advanced");
   if (connection.kind !== "advanced") throw new Error("wrong-provider");
@@ -584,21 +624,24 @@ test("restart replays from the durable cursor and late old stream events stay st
 test("credential renewal and line replacement close old clients before new construction", async () => {
   const scope = line();
   const order: string[] = [];
-  const manager = createConnectionManager({
-    advanced: (options) => {
-      order.push(`construct:${typeof options.token === "string" ? options.token : "function"}`);
-      const sdk = constructAdvanced(options);
-      const close = sdk.close.bind(sdk);
-      mock.method(sdk, "close", async () => {
-        order.push("close");
-        await close();
-      });
-      return sdk;
+  const manager = createConnectionManager(
+    {
+      advanced: (options) => {
+        order.push(`construct:${typeof options.token === "string" ? options.token : "function"}`);
+        const sdk = constructAdvanced(options);
+        const close = sdk.close.bind(sdk);
+        mock.method(sdk, "close", async () => {
+          order.push("close");
+          await close();
+        });
+        return sdk;
+      },
+      spectrum: async () => {
+        throw new Error("unexpected-spectrum");
+      },
     },
-    spectrum: async () => {
-      throw new Error("unexpected-spectrum");
-    },
-  });
+    testOwnership(),
+  );
   try {
     const old = await manager.replace(scope, credentials);
     await manager.replace(scope, { ...credentials, token: "renewed" });
@@ -621,7 +664,7 @@ test("credential renewal and line replacement close old clients before new const
 
 test("two managers cannot own the same physical line under different provider names", async () => {
   const h = await harness();
-  const other = createConnectionManager();
+  const other = createConnectionManager(undefined, testOwnership());
   try {
     await assert.rejects(
       other.replace({ ...h.scope, reference: { ...h.scope.reference, provider: "spectrum-imessage" } }, credentials),
@@ -654,7 +697,7 @@ function spectrumMessage(space: SpectrumSpace, overrides: Partial<SpectrumMessag
 async function spectrumHarness() {
   const base = line();
   const scope: ProviderLine = { ...base, reference: { ...base.reference, provider: "spectrum-imessage" } };
-  const manager = createConnectionManager();
+  const manager = createConnectionManager(undefined, testOwnership());
   const connection = await manager.replace(scope, credentials);
   if (connection.kind !== "spectrum") throw new Error("wrong-provider");
   const sdk = narrowSpectrum(connection.sdk);
@@ -861,19 +904,24 @@ test("shutdown during slow construction closes the late client and never activat
   const created = Promise.withResolvers<void>();
   const release = Promise.withResolvers<void>();
   let closed = false;
-  const manager = createConnectionManager({
-    advanced: constructAdvanced,
-    spectrum: async () => {
-      created.resolve();
-      await release.promise;
-      return {
-        messages: { [Symbol.asyncIterator]: () => ({ next: async () => ({ done: true as const, value: undefined }) }) },
-        stop: async () => {
-          closed = true;
-        },
-      };
+  const manager = createConnectionManager(
+    {
+      advanced: constructAdvanced,
+      spectrum: async () => {
+        created.resolve();
+        await release.promise;
+        return {
+          messages: {
+            [Symbol.asyncIterator]: () => ({ next: async () => ({ done: true as const, value: undefined }) }),
+          },
+          stop: async () => {
+            closed = true;
+          },
+        };
+      },
     },
-  });
+    testOwnership(),
+  );
   const base = line();
   const pending = manager.replace(
     { ...base, reference: { ...base.reference, provider: "spectrum-imessage" } },
@@ -906,7 +954,7 @@ test("shutdown timeout retains ownership until an already-started handoff finish
     feeds.catchup.push({ type: "catchup.complete", headSequence: 1 });
     await entered.promise;
     await assert.rejects(h.manager.stop(), /DRAIN_TIMEOUT/u);
-    const other = createConnectionManager();
+    const other = createConnectionManager(undefined, testOwnership());
     await assert.rejects(other.replace(h.scope, credentials), /LINE_ALREADY_OWNED/u);
     finish.resolve();
     await intake.stop();
@@ -934,7 +982,12 @@ test("a Spectrum grouped result with unexpected parts cannot confirm its contain
         { kind: "text", text: "B" },
       ],
     });
-    const result = await h.client.deliver({ operation: op, logicalPartIndexes: [0, 1], confirmedParts: [] });
+    const result = await h.client.deliver(
+      withPhotonDeliveryRuntimeProgress(
+        { operation: op, logicalPartIndexes: [0, 1], confirmedParts: [] },
+        runtimeProgress(),
+      ),
+    );
     assert.ok(result.kind === "ambiguous");
     assert.deepEqual(result.confirmedParts, []);
     parsePhotonOperationOutcome(result);
@@ -958,7 +1011,12 @@ test("Spectrum multipart failure retains each earlier provider receipt", async (
         { kind: "text", text: "B" },
       ],
     });
-    const outcome = await h.client.deliver({ operation: op, logicalPartIndexes: [0, 1], confirmedParts: [] });
+    const outcome = await h.client.deliver(
+      withPhotonDeliveryRuntimeProgress(
+        { operation: op, logicalPartIndexes: [0, 1], confirmedParts: [] },
+        runtimeProgress(),
+      ),
+    );
     assert.ok(outcome.kind === "ambiguous");
     assert.equal(outcome.confirmedParts.length, 1);
     assert.equal(outcome.confirmedParts[0]?.part.messageId, "accepted-first");
