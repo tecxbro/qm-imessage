@@ -17,6 +17,16 @@ export interface PhotonRouteDeps {
   core: PhotonCoreClient;
 }
 
+class PhotonUnavailableError extends Error {}
+
+type ResolvePhotonCore = (ctx: ApiCtx) => PhotonCoreClient | undefined;
+
+function coreFor(resolveCore: ResolvePhotonCore, ctx: ApiCtx): PhotonCoreClient {
+  const core = resolveCore(ctx);
+  if (core === undefined) throw new PhotonUnavailableError("photon_not_configured");
+  return core;
+}
+
 type PhotonEnvelope = { source: PhotonOperationSource; operation: QmChannelOperationRequest };
 type CheckedPhotonEnvelope = { source: PhotonOperationSource; operation: CheckedQmChannelOperation };
 
@@ -29,6 +39,10 @@ function checkedEnvelope(body: unknown): CheckedPhotonEnvelope {
 }
 
 function photonError(res: ApiCtx["res"], error: unknown): boolean {
+  if (error instanceof PhotonUnavailableError) {
+    sendJson(res, 503, { error: "unavailable", code: "photon_not_configured" });
+    return true;
+  }
   if (error instanceof PhotonAuthorizationError) {
     sendJson(res, 403, { error: "forbidden", code: error.code });
     return true;
@@ -93,7 +107,7 @@ function contextOutcome(body: unknown): { result?: SurfaceContextResult; error?:
   };
 }
 
-export function createPhotonRoutes(deps: PhotonRouteDeps): ReadonlyArray<Route<ApiCtx>> {
+function photonRoutes(resolveCore: ResolvePhotonCore): ReadonlyArray<Route<ApiCtx>> {
   return [
     {
       method: "POST",
@@ -101,7 +115,7 @@ export function createPhotonRoutes(deps: PhotonRouteDeps): ReadonlyArray<Route<A
       auth: "source",
       handle: handled(async (ctx) => {
         const request = envelope(ctx.body);
-        sendJson(ctx.res, 200, await deps.core.check(request.source, request.operation));
+        sendJson(ctx.res, 200, await coreFor(resolveCore, ctx).check(request.source, request.operation));
       }),
     },
     {
@@ -110,7 +124,7 @@ export function createPhotonRoutes(deps: PhotonRouteDeps): ReadonlyArray<Route<A
       auth: "source",
       handle: handled(async (ctx) => {
         const request = checkedEnvelope(ctx.body);
-        sendJson(ctx.res, 200, await deps.core.execute(request.source, request.operation));
+        sendJson(ctx.res, 200, await coreFor(resolveCore, ctx).execute(request.source, request.operation));
       }),
     },
     {
@@ -120,7 +134,7 @@ export function createPhotonRoutes(deps: PhotonRouteDeps): ReadonlyArray<Route<A
       handle: handled(async (ctx) => {
         const request = envelope(ctx.body);
         if (runIdOf(request.operation) !== ctx.params.id) throw new TypeError("run id does not match operation");
-        const run = await deps.core.getRun(request.source, request.operation);
+        const run = await coreFor(resolveCore, ctx).getRun(request.source, request.operation);
         if (!run) return sendJson(ctx.res, 404, { error: "not_found" });
         sendJson(ctx.res, 200, run);
       }),
@@ -131,7 +145,7 @@ export function createPhotonRoutes(deps: PhotonRouteDeps): ReadonlyArray<Route<A
       auth: "source",
       handle: handled(async (ctx) => {
         const request = envelope(ctx.body);
-        sendJson(ctx.res, 200, await deps.core.activeRun(request.source, request.operation));
+        sendJson(ctx.res, 200, await coreFor(resolveCore, ctx).activeRun(request.source, request.operation));
       }),
     },
     {
@@ -141,7 +155,7 @@ export function createPhotonRoutes(deps: PhotonRouteDeps): ReadonlyArray<Route<A
       handle: handled(async (ctx) => {
         const request = envelope(ctx.body);
         if (runIdOf(request.operation) !== ctx.params.id) throw new TypeError("run id does not match operation");
-        sendJson(ctx.res, 200, await deps.core.withdrawRun(request.source, request.operation));
+        sendJson(ctx.res, 200, await coreFor(resolveCore, ctx).withdrawRun(request.source, request.operation));
       }),
     },
     {
@@ -150,7 +164,7 @@ export function createPhotonRoutes(deps: PhotonRouteDeps): ReadonlyArray<Route<A
       auth: "source",
       handle: handled(async (ctx) => {
         const request = envelope(ctx.body);
-        const approval = await deps.core.getApproval(request.source, request.operation);
+        const approval = await coreFor(resolveCore, ctx).getApproval(request.source, request.operation);
         if (!approval) return sendJson(ctx.res, 404, { error: "not_found" });
         sendJson(ctx.res, 200, approval);
       }),
@@ -162,7 +176,7 @@ export function createPhotonRoutes(deps: PhotonRouteDeps): ReadonlyArray<Route<A
       handle: handled(async (ctx) => {
         const request = envelope(ctx.body);
         if (request.operation.sessionId !== ctx.params.id) throw new TypeError("session id does not match operation");
-        sendJson(ctx.res, 200, await deps.core.listSessionApprovals(request.source, request.operation));
+        sendJson(ctx.res, 200, await coreFor(resolveCore, ctx).listSessionApprovals(request.source, request.operation));
       }),
     },
     {
@@ -172,7 +186,7 @@ export function createPhotonRoutes(deps: PhotonRouteDeps): ReadonlyArray<Route<A
       handle: handled(async (ctx) => {
         const raw = Number(ctx.url.searchParams.get("claimMs") ?? 0);
         const claimMs = Number.isFinite(raw) && raw > 0 ? raw : undefined;
-        sendJson(ctx.res, 200, await deps.core.pendingDeliveries(claimMs));
+        sendJson(ctx.res, 200, await coreFor(resolveCore, ctx).pendingDeliveries(claimMs));
       }),
     },
     {
@@ -180,7 +194,7 @@ export function createPhotonRoutes(deps: PhotonRouteDeps): ReadonlyArray<Route<A
       path: "/v1/photon/deliveries/:id/ack",
       auth: "source",
       handle: handled(async (ctx) => {
-        sendJson(ctx.res, 200, await deps.core.ackDelivery(ctx.params.id!));
+        sendJson(ctx.res, 200, await coreFor(resolveCore, ctx).ackDelivery(ctx.params.id!));
       }),
     },
     {
@@ -188,7 +202,7 @@ export function createPhotonRoutes(deps: PhotonRouteDeps): ReadonlyArray<Route<A
       path: "/v1/photon/context-requests",
       auth: "source",
       handle: handled(async (ctx) => {
-        sendJson(ctx.res, 200, await deps.core.pendingContextRequests());
+        sendJson(ctx.res, 200, await coreFor(resolveCore, ctx).pendingContextRequests());
       }),
     },
     {
@@ -196,9 +210,15 @@ export function createPhotonRoutes(deps: PhotonRouteDeps): ReadonlyArray<Route<A
       path: "/v1/photon/context-requests/:id/result",
       auth: "source",
       handle: handled(async (ctx) => {
-        const result = await deps.core.fulfillContextRequest(ctx.params.id!, contextOutcome(ctx.body));
+        const result = await coreFor(resolveCore, ctx).fulfillContextRequest(ctx.params.id!, contextOutcome(ctx.body));
         sendJson(ctx.res, result.fulfilled === true ? 200 : 404, result);
       }),
     },
   ];
 }
+
+export function createPhotonRoutes(deps: PhotonRouteDeps): ReadonlyArray<Route<ApiCtx>> {
+  return photonRoutes(() => deps.core);
+}
+
+export const serverPhotonRoutes = photonRoutes((ctx) => ctx.deps.photonCore);

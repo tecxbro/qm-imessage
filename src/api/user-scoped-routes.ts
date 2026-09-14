@@ -113,6 +113,15 @@ const USER_SCOPED: Rule[] = [
 ];
 
 const SYSTEM: Rule[] = [
+  pat("POST", "/v1/photon/channel/check"),
+  pat("POST", "/v1/photon/channel/execute"),
+  pat("POST", "/v1/photon/runs/:id/read"),
+  pat("POST", "/v1/photon/runs/active"),
+  pat("POST", "/v1/photon/runs/:id/withdraw"),
+  pat("POST", "/v1/photon/approvals/read"),
+  pat("POST", "/v1/photon/sessions/:id/approvals"),
+  pat("POST", "/v1/photon/deliveries/:id/ack"),
+  pat("POST", "/v1/photon/context-requests/:id/result"),
   pat("POST", "/v1/turns"),
   pat("POST", "/v1/turns/:id/metrics"),
   pat("POST", "/v1/runs/:id/delivery-state"),

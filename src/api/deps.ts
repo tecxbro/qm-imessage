@@ -67,11 +67,13 @@ import type { ConnectorTokenSource, SlackUserClient } from "../loops/sources/ada
 import type { RateLimiter } from "../ratelimit/rate-limiter.ts";
 import type { AdvisoryLock } from "../persistence/advisory-lock.ts";
 import type { SlackInstallationStore, SlackSocketAppIdReader } from "../surfaces/slack-installation.ts";
+import type { PhotonCoreClient } from "./photon-core-client.ts";
 
 export interface ServerDeps {
   production?: boolean;
   allowUnauthenticatedCore?: boolean;
   signingSecret?: string;
+  photonCore?: PhotonCoreClient;
   capabilitySecret?: string;
   portalIdentitySecret?: string;
   requireSignedPortalIdentity?: boolean;
