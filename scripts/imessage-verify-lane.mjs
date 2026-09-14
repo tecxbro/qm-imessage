@@ -73,6 +73,46 @@ export function matches(path, pattern) {
   return new RegExp(`${source}$`, "u").test(path);
 }
 
+const acceptedCheckpointOneCorrectionMarker = Buffer.from("\n## Accepted checkpoint 1 corrections\n\n");
+const checkpointOneLaneDocument = /^docs\/imessage\/lanes\/wt-0[1-6]\.md$/u;
+
+function gitBlob(root, ref, path) {
+  const result = spawnSync("git", ["-C", root, "show", `${ref}:${path}`], { encoding: "buffer" });
+  return result.status === 0 && Buffer.isBuffer(result.stdout) ? result.stdout : undefined;
+}
+
+function gitMode(root, ref, path) {
+  const result = git(root, ["ls-tree", ref, "--", path], { capture: true, allowFailure: true });
+  return result.status === 0 && result.stdout.length > 0 ? result.stdout.split(" ", 1)[0] : undefined;
+}
+
+function acceptedCheckpointOneCorrection(root, path, laneCommit, target) {
+  if (!checkpointOneLaneDocument.test(path) || gitMode(root, laneCommit, path) !== gitMode(root, target, path)) {
+    return false;
+  }
+  const original = gitBlob(root, laneCommit, path);
+  const candidate = gitBlob(root, target, path);
+  if (original === undefined || candidate === undefined || candidate.length <= original.length) return false;
+  if (!candidate.subarray(0, original.length).equals(original)) return false;
+  const appendix = candidate.subarray(original.length);
+  return (
+    appendix.length > acceptedCheckpointOneCorrectionMarker.length &&
+    appendix.subarray(0, acceptedCheckpointOneCorrectionMarker.length).equals(acceptedCheckpointOneCorrectionMarker)
+  );
+}
+
+export function classifyLaneContributionPath(root, path, laneCommit, target, integrationOwnedPaths) {
+  const comparison = git(root, ["diff", "--quiet", laneCommit, target, "--", path], {
+    capture: true,
+    allowFailure: true,
+  });
+  if (comparison.status === 0) return "lane";
+  if (checkpointOneLaneDocument.test(path)) {
+    return acceptedCheckpointOneCorrection(root, path, laneCommit, target) ? "integration" : "drift";
+  }
+  return integrationOwnedPaths.some((pattern) => matches(path, pattern)) ? "integration" : "drift";
+}
+
 function splitZero(value) {
   return value.split("\0").filter(Boolean);
 }
@@ -383,16 +423,20 @@ function waveCheckpoint(context, ownership, wave, selectedIdentity) {
         const repair = repairs.finalRepairForPath(path);
         if (repair !== undefined) {
           repairs.requireOriginalPath(path, laneCommit, `WAVE_LANE_CONTRIBUTION:${contribution.laneId}`);
-        } else if (
-          git(context.main, ["diff", "--quiet", laneCommit, tagTarget, "--", path], {
-            capture: true,
-            allowFailure: true,
-          }).status !== 0
-        ) {
-          throw new Error(`WAVE_LANE_CONTRIBUTION_DRIFT:${contribution.laneId}:${path}`);
+        } else {
+          const disposition = classifyLaneContributionPath(
+            context.main,
+            path,
+            laneCommit,
+            tagTarget,
+            ownership.integration.ownedPaths,
+          );
+          if (disposition === "drift") {
+            throw new Error(`WAVE_LANE_CONTRIBUTION_DRIFT:${contribution.laneId}:${path}`);
+          }
+          if (disposition === "lane") contributionPaths.add(path);
         }
       }
-      paths.forEach((path) => contributionPaths.add(path));
     }
     repairs.paths.forEach((path) => contributionPaths.add(path));
     const assembled = nameStatusPaths(
@@ -617,13 +661,19 @@ function verifyIntegration(root, ownership, checkpointPath) {
       const repair = repairs.finalRepairForPath(path);
       if (repair !== undefined) {
         repairs.requireOriginalPath(path, laneCommit, `LANE_CONTRIBUTION:${contribution.laneId}`);
-      } else if (
-        git(root, ["diff", "--quiet", laneCommit, "HEAD", "--", path], { capture: true, allowFailure: true }).status !==
-        0
-      ) {
-        throw new Error(`LANE_CONTRIBUTION_DRIFT:${contribution.laneId}:${path}`);
+      } else {
+        const disposition = classifyLaneContributionPath(
+          root,
+          path,
+          laneCommit,
+          "HEAD",
+          ownership.integration.ownedPaths,
+        );
+        if (disposition === "drift") {
+          throw new Error(`LANE_CONTRIBUTION_DRIFT:${contribution.laneId}:${path}`);
+        }
+        if (disposition === "lane") contributionPaths.add(path);
       }
-      contributionPaths.add(path);
     }
   }
   repairs.paths.forEach((path) => contributionPaths.add(path));
