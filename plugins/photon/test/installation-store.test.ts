@@ -2,7 +2,12 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { decryptSecret, deriveConnectorKey, encryptSecret } from "../../chassis/src/secret-box.ts";
-import type { InstallationRecord } from "../src/ports.ts";
+import type {
+  InstallationRecord,
+  PhotonInstallationCiphertextRecord,
+  PhotonInstallationCiphertextStore,
+  PhotonInstallationStoreAdapter,
+} from "../src/ports.ts";
 import type {
   PhotonCliInvocation,
   PhotonCliProcessResult,
@@ -12,10 +17,7 @@ import type {
 import { PhotonCliInstallationService } from "../src/setup/installation.ts";
 import {
   createEncryptedPhotonInstallationStore,
-  type PhotonInstallationCiphertextRecord,
-  type PhotonInstallationCiphertextStore,
   type PhotonInstallationSecretCodec,
-  type PhotonInstallationStoreAdapter,
 } from "../src/setup/installation-store.ts";
 
 class StrictCiphertextStore implements PhotonInstallationCiphertextStore {
@@ -207,14 +209,21 @@ test("the adapter preserves compare-and-set and rejects invalid service records"
   assert.equal(await encrypted.create(connectedRecord("installation-b")), true);
   assert.equal(await encrypted.compareAndSet("installation-a", 0, { ...initial, version: 2 }), false);
   assert.equal(await encrypted.compareAndSet("installation-a", 1, { ...initial, version: 2 }), true);
-  assert.throws(
-    () =>
-      encrypted.compareAndSet("installation-a", 2, {
-        ...initial,
-        status: { ...initial.status, runtime: { credentialCiphertext: "ciphertext" } },
-        version: 3,
-      }),
-    { message: "PHOTON_INSTALLATION_SERVICE_SECRET_INVALID" },
+  const privateRecord = {
+    ...initial,
+    status: {
+      ...initial.status,
+      management: { accessToken: "management-secret", credentialPath: "/private/photon/installation-a" },
+      runtime: { projectSecret: "project-secret", credentialCiphertext: "legacy-runtime-ciphertext" },
+      deviceCode: "ABCD-EFGH",
+    },
+    version: 3,
+  } satisfies InstallationRecord;
+  assert.equal(await encrypted.compareAndSet("installation-a", 2, privateRecord), true);
+  assert.deepEqual(await encrypted.read("installation-a"), privateRecord);
+  assert.doesNotMatch(
+    JSON.stringify(persisted.records.get("installation-a")),
+    /management-secret|private\/photon|project-secret|legacy-runtime-ciphertext|ABCD-EFGH/u,
   );
   assert.throws(
     () =>
@@ -233,6 +242,14 @@ test("the adapter preserves compare-and-set and rejects invalid service records"
           lines: [{ lineId: "line-installation-a", maskedAddress: "+1•••0999", secret: "unexpected" }],
         },
       } as unknown as InstallationRecord),
+    { message: "PHOTON_INSTALLATION_SERVICE_SECRET_INVALID" },
+  );
+  assert.throws(
+    () =>
+      encrypted.create({
+        ...initial,
+        status: { ...initial.status, runtime: { projectSecret: "" } },
+      }),
     { message: "PHOTON_INSTALLATION_SERVICE_SECRET_INVALID" },
   );
 });
@@ -279,6 +296,10 @@ test("wrong keys, tampering, and ciphertext or row swaps fail with a secret-free
   await assert.rejects(rotated.read("installation-a"), { message: "PHOTON_INSTALLATION_SECRET_INVALID" });
 
   first.version = 2;
+  first.ownerRevision = "owner-revision-2";
+  await assert.rejects(rotated.read("installation-a"), { message: "PHOTON_INSTALLATION_SECRET_INVALID" });
+
+  first.ownerRevision = "owner-revision-1";
   const separator = firstCiphertext.lastIndexOf(":") + 1;
   const replacement = firstCiphertext[separator] === "A" ? "B" : "A";
   first.ciphertext = `${firstCiphertext.slice(0, separator)}${replacement}${firstCiphertext.slice(separator + 1)}`;
@@ -293,4 +314,13 @@ test("the adapter requires an explicit wrapping-key identifier", () => {
   assert.throws(() => createEncryptedPhotonInstallationStore(persisted, codec("persistent-installation-key", "")), {
     message: "PHOTON_INSTALLATION_WRAPPING_KEY_ID_INVALID",
   });
+  assert.throws(
+    () =>
+      createEncryptedPhotonInstallationStore(persisted, {
+        wrappingKeyId: "installation-key-1",
+        encrypt: () => "",
+        decrypt: () => "",
+      }).create(connectedRecord("installation-a")),
+    { message: "PHOTON_INSTALLATION_SERVICE_SECRET_INVALID" },
+  );
 });

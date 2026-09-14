@@ -6,31 +6,12 @@ import {
   projectInstallationForDashboard,
   type PrivateInstallationStatus,
 } from "../../../chassis/src/photon-contract.ts";
-import type { InstallationRecord } from "../ports.ts";
-
-export interface PhotonInstallationCiphertextRecord {
-  installationId: string;
-  ownerRevision: string;
-  version: number;
-  wrappingKeyId: string;
-  ciphertext: string;
-}
-
-export interface PhotonInstallationCiphertextStore {
-  read(installationId: string): Promise<PhotonInstallationCiphertextRecord | undefined>;
-  create(record: PhotonInstallationCiphertextRecord): Promise<boolean>;
-  compareAndSet(
-    installationId: string,
-    expectedVersion: number,
-    next: PhotonInstallationCiphertextRecord,
-  ): Promise<boolean>;
-}
-
-export interface PhotonInstallationStoreAdapter {
-  read(installationId: string): Promise<InstallationRecord | undefined>;
-  create(record: InstallationRecord): Promise<boolean>;
-  compareAndSet(installationId: string, expectedVersion: number, next: InstallationRecord): Promise<boolean>;
-}
+import type {
+  InstallationRecord,
+  PhotonInstallationCiphertextRecord,
+  PhotonInstallationCiphertextStore,
+  PhotonInstallationStoreAdapter,
+} from "../ports.ts";
 
 export interface PhotonInstallationSecretCodec {
   wrappingKeyId: string;
@@ -89,8 +70,13 @@ function privateStatus(value: PrivateInstallationStatus): void {
   }
   if (input.runtime !== undefined) {
     const runtime = object(input.runtime, "installationRecord.status.runtime");
-    keys(runtime, ["projectSecret"], "installationRecord.status.runtime");
-    nonempty(runtime.projectSecret, "installationRecord.status.runtime.projectSecret");
+    keys(runtime, ["projectSecret", "credentialCiphertext"], "installationRecord.status.runtime");
+    if (runtime.projectSecret !== undefined) {
+      nonempty(runtime.projectSecret, "installationRecord.status.runtime.projectSecret");
+    }
+    if (runtime.credentialCiphertext !== undefined) {
+      nonempty(runtime.credentialCiphertext, "installationRecord.status.runtime.credentialCiphertext");
+    }
   }
   if (input.deviceCode !== undefined) nonempty(input.deviceCode, "installationRecord.status.deviceCode");
 }
@@ -131,12 +117,17 @@ function forStorage(
 ): PhotonInstallationCiphertextRecord {
   try {
     const next = serviceRecord(record);
+    const keyId = wrappingKeyId(codec.wrappingKeyId);
+    const ciphertext = nonempty(
+      codec.encrypt(JSON.stringify({ ...binding(next, keyId), record: next })),
+      "photonInstallationCiphertextRecord.ciphertext",
+    );
     return {
       installationId: next.installation.installationId,
       ownerRevision: next.ownerRevision,
       version: next.version,
-      wrappingKeyId: codec.wrappingKeyId,
-      ciphertext: codec.encrypt(JSON.stringify({ ...binding(next, codec.wrappingKeyId), record: next })),
+      wrappingKeyId: keyId,
+      ciphertext,
     };
   } catch {
     throw new Error("PHOTON_INSTALLATION_SERVICE_SECRET_INVALID");
