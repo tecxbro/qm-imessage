@@ -66,20 +66,23 @@ async function createProvenanceFixture(
   git(main, "config", "user.name", "Fixture");
   git(main, "config", "user.email", "fixture@example.test");
   git(main, "remote", "add", "origin", "https://github.com/example/qm-imessage.git");
+  await write(resolve(main, ".gitignore"), "worktrees/\n");
   await write(resolve(main, "reviewed.txt"), "reviewed\n");
   for (const [path, value] of Object.entries(initialFiles)) await write(resolve(main, path), value);
   const reviewed = commitAll(main, "reviewed input");
-  const dispatchPath = resolve(temporary, "dispatch.json");
+  const dispatchPath = resolve(main, ".git/dispatch.json");
   const ownershipPath = "docs/imessage/repairs/ownership.json";
   const repairDocument = {
     schemaVersion: 1,
     reviewedInput: { branch: "integration-1", commit: reviewed },
     repairBaseResolution: {
-      recordPath: dispatchPath,
+      recordPath: "dispatch.json",
+      resolveFrom: "git-common-dir",
       schemaVersion: 1,
       field: "repairBaseCommit",
       requiredFields: ["schemaVersion", "reviewedInput", "repairBaseCommit", "repairs"],
     },
+    coordinator: { branch: "cp1/coordinator", worktree: "." },
     repairs: repairOwnership.repairs,
     joins: repairOwnership.joins ?? {},
   };
@@ -90,7 +93,7 @@ async function createProvenanceFixture(
       repairId,
       {
         branch: entry.branch,
-        worktree: resolve(workspace, entry.worktree!),
+        worktree: resolve(main, entry.worktree!),
         baseCommit: repairBase,
       },
     ]),
@@ -102,7 +105,7 @@ async function createProvenanceFixture(
         schemaVersion: 1,
         repository: "https://github.com/example/qm-imessage.git",
         integrationWorktree: main,
-        integrationBranch: "imessage/integration",
+        integrationBranch: "cp1/coordinator",
         reviewedInput: reviewed,
         repairBaseCommit: repairBase,
         repairs: dispatchRepairs,
@@ -116,7 +119,7 @@ async function createProvenanceFixture(
     integration: { branch: "imessage/integration", worktree: "main" },
     checkpointRepairs: { reviewedInput: reviewed, ownership: ownershipPath },
   };
-  return { temporary, workspace, main, reviewed, repairBase, dispatchPath, ownership, repairDocument };
+  return { temporary, workspace: main, main, reviewed, repairBase, dispatchPath, ownership, repairDocument };
 }
 
 async function repairCommit(root: string, branch: string, base: string, files: Record<string, string>) {
@@ -264,6 +267,31 @@ test("repair provenance rejects same-path siblings and accepts an explicit resol
   assert.deepEqual(accepted.paths, ["src/shared.ts"]);
 });
 
+test("repair provenance rejects an undeclared same-path dependency", async (context) => {
+  const fixture = await createProvenanceFixture({
+    repairs: {
+      r01: { branch: "cp1/r01", worktree: "worktrees/cp1-r01", ownedPaths: ["src/shared.ts"] },
+      r02: { branch: "cp1/r02", worktree: "worktrees/cp1-r02", ownedPaths: ["src/shared.ts"] },
+    },
+  });
+  context.after(() => rm(fixture.temporary, { recursive: true, force: true }));
+  const one = await repairCommit(fixture.main, "cp1/r01", fixture.repairBase, {
+    "src/shared.ts": "export const value = 1;\n",
+  });
+  const two = await repairCommit(fixture.main, "cp1/r02", one, {
+    "src/shared.ts": "export const value = 2;\n",
+  });
+  git(fixture.main, "checkout", "-B", "imessage/integration", two);
+  assert.throws(
+    () =>
+      validate(fixture, two, [
+        { repairId: "r01", baseCommit: fixture.repairBase, commit: one },
+        { repairId: "r02", baseCommit: fixture.repairBase, commit: two },
+      ]),
+    /REPAIR_PATH_DEPENDENCY_MISSING:r02:src\/shared\.ts:r01/u,
+  );
+});
+
 test("repair provenance accepts a declared dependent chain", async (context) => {
   const fixture = await createProvenanceFixture({
     repairs: {
@@ -403,6 +431,7 @@ async function createScriptFixture(options: { omitTest?: boolean } = {}) {
   git(main, "config", "user.name", "Fixture");
   git(main, "config", "user.email", "fixture@example.test");
   git(main, "remote", "add", "origin", "https://github.com/example/qm-imessage.git");
+  await write(resolve(main, ".gitignore"), "worktrees/\n");
   for (const path of ["imessage-verify-lane.mjs", "imessage-worktrees.mjs", "imessage-corrections.mjs"]) {
     await write(resolve(main, `scripts/${path}`), await readFile(resolve(repositoryRoot, `scripts/${path}`), "utf8"));
   }
@@ -419,16 +448,18 @@ async function createScriptFixture(options: { omitTest?: boolean } = {}) {
   git(main, "checkout", "imessage/integration");
   git(main, "merge", "--no-ff", "--no-edit", laneCommit);
   const reviewed = git(main, "rev-parse", "HEAD");
-  const dispatchPath = resolve(temporary, "dispatch.json");
+  const dispatchPath = resolve(main, ".git/dispatch.json");
   const repairOwnership = {
     schemaVersion: 1,
     reviewedInput: { branch: "integration-1", commit: reviewed },
     repairBaseResolution: {
-      recordPath: dispatchPath,
+      recordPath: "dispatch.json",
+      resolveFrom: "git-common-dir",
       schemaVersion: 1,
       field: "repairBaseCommit",
       requiredFields: ["schemaVersion", "reviewedInput", "repairBaseCommit", "repairs"],
     },
+    coordinator: { branch: "cp1/coordinator", worktree: "." },
     repairs: {
       r01: {
         base: "repairBaseCommit",
@@ -495,7 +526,7 @@ async function createScriptFixture(options: { omitTest?: boolean } = {}) {
   const dispatchRepairs = Object.fromEntries(
     Object.entries(repairOwnership.repairs).map(([repairId, entry]) => [
       repairId,
-      { branch: entry.branch, worktree: resolve(workspace, entry.worktree), baseCommit: repairBase },
+      { branch: entry.branch, worktree: resolve(main, entry.worktree), baseCommit: repairBase },
     ]),
   );
   await write(
@@ -505,7 +536,7 @@ async function createScriptFixture(options: { omitTest?: boolean } = {}) {
         schemaVersion: 1,
         repository: ownership.repository,
         integrationWorktree: main,
-        integrationBranch: ownership.integration.branch,
+        integrationBranch: repairOwnership.coordinator.branch,
         reviewedInput: reviewed,
         repairBaseCommit: repairBase,
         repairs: dispatchRepairs,
@@ -540,7 +571,7 @@ async function createScriptFixture(options: { omitTest?: boolean } = {}) {
     `${JSON.stringify(checkpointInput, null, 2)}\n`,
   );
   const target = commitAll(main, "capture checkpoint one input");
-  registerRepairWorktrees(main, workspace, repairOwnership, [
+  registerRepairWorktrees(main, main, repairOwnership, [
     { repairId: "r01", commit: one },
     { repairId: "r02", commit: two },
   ]);

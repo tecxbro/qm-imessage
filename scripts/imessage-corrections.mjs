@@ -72,7 +72,11 @@ function requireRegularFile(path, label) {
 function repositoryPaths(main) {
   const common = git(main, ["rev-parse", "--path-format=absolute", "--git-common-dir"]).stdout;
   const repositoryMain = common.endsWith("/.git") ? dirname(common) : main;
-  return { main: realpathSync(repositoryMain), workspace: dirname(realpathSync(repositoryMain)) };
+  return {
+    gitCommonDir: realpathSync(common),
+    main: realpathSync(repositoryMain),
+    workspace: realpathSync(repositoryMain),
+  };
 }
 
 function registeredWorktrees(main) {
@@ -119,11 +123,22 @@ function readRepairOwnership(root, main, ownership, target) {
   const repairOwnership = JSON.parse(readFileSync(absolute, "utf8"));
   const resolution = repairOwnership.repairBaseResolution;
   const recordPath = resolution?.recordPath;
-  if (typeof recordPath !== "string" || !isAbsolute(recordPath)) {
+  const paths = repositoryPaths(main);
+  if (
+    resolution?.resolveFrom !== "git-common-dir" ||
+    typeof recordPath !== "string" ||
+    recordPath.length === 0 ||
+    isAbsolute(recordPath) ||
+    relative(paths.gitCommonDir, resolve(paths.gitCommonDir, recordPath)).startsWith("..")
+  ) {
     throw new Error(`REPAIR_BASE_RECORD_PATH_INVALID:${recordPath}`);
   }
-  requireRegularFile(recordPath, "REPAIR_BASE_RECORD");
-  const dispatch = JSON.parse(readFileSync(recordPath, "utf8"));
+  const absoluteRecordPath = resolve(paths.gitCommonDir, recordPath);
+  requireRegularFile(absoluteRecordPath, "REPAIR_BASE_RECORD");
+  if (!realpathSync(absoluteRecordPath).startsWith(`${paths.gitCommonDir}/`)) {
+    throw new Error(`REPAIR_BASE_RECORD_OUTSIDE:${recordPath}`);
+  }
+  const dispatch = JSON.parse(readFileSync(absoluteRecordPath, "utf8"));
   for (const field of resolution.requiredFields ?? []) {
     if (!Object.hasOwn(dispatch, field)) throw new Error(`REPAIR_BASE_RECORD_FIELD_MISSING:${field}`);
   }
@@ -139,12 +154,14 @@ function readRepairOwnership(root, main, ownership, target) {
   ) {
     throw new Error(`REPAIR_BASE_RECORD_INPUT_MISMATCH:${dispatch.reviewedInput}`);
   }
-  const paths = repositoryPaths(main);
+  const coordinator = repairOwnership.coordinator;
   if (
     dispatch.repository?.replace(/\.git$/u, "") !== ownership.repository.replace(/\.git$/u, "") ||
-    dispatch.integrationBranch !== ownership.integration.branch ||
+    typeof coordinator?.branch !== "string" ||
+    typeof coordinator?.worktree !== "string" ||
+    dispatch.integrationBranch !== coordinator.branch ||
     normalizedPath(dispatch.integrationWorktree ?? "") !==
-      normalizedPath(resolve(paths.workspace, ownership.integration.worktree))
+      normalizedPath(resolve(paths.workspace, coordinator.worktree))
   ) {
     throw new Error("REPAIR_BASE_RECORD_REPOSITORY_MISMATCH");
   }
@@ -282,6 +299,19 @@ export function validateRepairProvenance({ root, main, target, checkpoint, owner
       }
     }
   }
+  const dependsOn = (contribution, dependencyId) => {
+    const pending = [...(contribution.ownership.dependsOn ?? [])];
+    const visited = new Set();
+    while (pending.length > 0) {
+      const declaredId = pending.pop();
+      if (declaredId === dependencyId) return true;
+      if (visited.has(declaredId)) continue;
+      visited.add(declaredId);
+      const declared = contributions.find((candidate) => candidate.repairId === declaredId);
+      if (declared !== undefined) pending.push(...(declared.ownership.dependsOn ?? []));
+    }
+    return false;
+  };
   const paths = [...new Set(contributions.flatMap((contribution) => contribution.changedPaths))].sort();
   const unrecorded = changedPaths(main, repairBase, targetCommit).filter(
     (path) =>
@@ -302,9 +332,25 @@ export function validateRepairProvenance({ root, main, target, checkpoint, owner
     return tips[0];
   };
   for (const path of paths) {
+    const touching = contributions.filter((contribution) => contribution.changedPaths.includes(path));
+    for (const contribution of touching) {
+      const undeclared = touching.filter(
+        (other) =>
+          other.commit !== contribution.commit &&
+          isAncestor(main, other.commit, contribution.commit) &&
+          !dependsOn(contribution, other.repairId),
+      );
+      if (undeclared.length > 0) {
+        throw new Error(
+          `REPAIR_PATH_DEPENDENCY_MISSING:${contribution.repairId}:${path}:${undeclared
+            .map((entry) => entry.repairId)
+            .sort()
+            .join(",")}`,
+        );
+      }
+    }
     const final = finalRepairForPath(path);
     requireSamePath(main, final.commit, targetCommit, path, "REPAIR_CONTRIBUTION_DRIFT");
-    const touching = contributions.filter((contribution) => contribution.changedPaths.includes(path));
     for (const contribution of touching) {
       const prior = touching.filter(
         (other) => other.commit !== contribution.commit && isAncestor(main, other.commit, contribution.baseCommit),
