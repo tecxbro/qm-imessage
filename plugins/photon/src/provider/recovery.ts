@@ -1,6 +1,6 @@
 import type { CatchUpEvent, LiveEvent } from "@photon-ai/advanced-imessage/grpc";
 import type { NormalizedPhotonInput } from "../../../chassis/src/photon-contract.ts";
-import type { EventReceiptStorePort } from "../ports.ts";
+import type { EventReceipt, EventReceiptStorePort, ProviderEventKey } from "../ports.ts";
 import type { ProviderConnection } from "./connection.ts";
 import { normalizeAdvancedEvent, normalizeSpectrumMessage, providerSequence } from "./subscriptions.ts";
 
@@ -16,6 +16,45 @@ export const DEFAULT_RECOVERY_LIMITS: RecoveryLimits = {
   maxBytes: 16 * 1024 * 1024,
   catchupTimeoutMs: 30_000,
 };
+
+interface ReceiptRecoveryCursor {
+  capturedAt: string;
+  eventId: string;
+}
+
+interface ReceiptRecoveryPage {
+  receipts: readonly EventReceipt[];
+  next?: ReceiptRecoveryCursor;
+}
+
+interface RecoverableEventReceiptStorePort extends EventReceiptStorePort {
+  discoverRecoverable(query: {
+    provider: ProviderEventKey["provider"];
+    installationId: string;
+    lineId?: string;
+    now: string;
+    limit: number;
+    after?: ReceiptRecoveryCursor;
+  }): Promise<ReceiptRecoveryPage>;
+}
+
+function recoveryStore(store: EventReceiptStorePort): RecoverableEventReceiptStorePort {
+  if (!("discoverRecoverable" in store) || typeof store.discoverRecoverable !== "function")
+    throw new Error("PROVIDER_RECEIPT_RECOVERY_UNAVAILABLE");
+  return store as RecoverableEventReceiptStorePort;
+}
+
+function receiptIdentity(key: ProviderEventKey): string {
+  return JSON.stringify([key.provider, key.installationId, key.lineId ?? "", key.eventId]);
+}
+
+function hasLiveClaim(receipt: EventReceipt | undefined): boolean {
+  return (
+    receipt?.state === "processing" &&
+    receipt.claim !== undefined &&
+    Date.parse(receipt.claim.leaseExpiresAt) > Date.now()
+  );
+}
 
 export function eventKey(input: NormalizedPhotonInput) {
   const event = input.event;
@@ -57,6 +96,8 @@ export async function startProviderIntake(
   void failure.promise.catch(() => undefined);
   void completion.promise.catch(() => undefined);
   let timer: ReturnType<typeof setTimeout> | undefined;
+  const recoveryHandoffs = new Set<string>();
+  let durableRecoveryComplete = false;
   const stop = () => {
     stopped = true;
     if (timer) clearTimeout(timer);
@@ -95,12 +136,75 @@ export async function startProviderIntake(
     serial = next;
     return next;
   }
-  async function handoff(input: NormalizedPhotonInput) {
+  async function handoff(input: NormalizedPhotonInput, recovered = false) {
     if (stopped) return;
     connection.assertActive();
-    const receipt = await store.read(eventKey(input));
+    const key = eventKey(input);
+    const identity = receiptIdentity(key);
+    if (recoveryHandoffs.has(identity)) return;
+    const receipt = await store.read(key);
     if (receipt?.state === "checkpointed" || receipt?.state === "rejected") return;
-    if (!stopped) await onInput(input);
+    if (hasLiveClaim(receipt)) return;
+    if (!stopped) {
+      if (recovered || !durableRecoveryComplete) {
+        if (recoveryHandoffs.size >= limits.maxEvents) throw new Error("PROVIDER_RECOVERY_BOUND_EXCEEDED");
+        recoveryHandoffs.add(identity);
+      }
+      await onInput(input);
+    }
+  }
+  async function recoverDurableReceipts() {
+    const recoverable = recoveryStore(store);
+    const seen = new Set<string>();
+    const recovered: NormalizedPhotonInput[] = [];
+    let bytes = 0;
+    let addedInSweep: number;
+    do {
+      addedInSweep = 0;
+      let after: ReceiptRecoveryCursor | undefined;
+      const now = new Date().toISOString();
+      do {
+        if (stopped) return recovered;
+        const page = await recoverable.discoverRecoverable({
+          ...connection.line.reference,
+          now,
+          limit: Math.min(128, limits.maxEvents),
+          ...(after === undefined ? {} : { after }),
+        });
+        for (const receipt of page.receipts) {
+          if (stopped) return recovered;
+          if (
+            receipt.key.provider !== connection.line.reference.provider ||
+            receipt.key.installationId !== connection.line.reference.installationId ||
+            receipt.key.lineId !== connection.line.reference.lineId
+          )
+            throw new Error("PROVIDER_RECOVERY_SCOPE_MISMATCH");
+          const identity = receiptIdentity(receipt.key);
+          if (seen.has(identity)) continue;
+          if (seen.size >= limits.maxEvents) throw new Error("PROVIDER_RECOVERY_BOUND_EXCEEDED");
+          seen.add(identity);
+          addedInSweep += 1;
+          if (receipt.payload.kind === "reference") {
+            const current = await store.read(receipt.key);
+            if (current?.state === "checkpointed" || current?.state === "rejected" || hasLiveClaim(current)) continue;
+            throw new Error("PROVIDER_RECOVERY_REFERENCE_UNRESOLVED");
+          }
+          const envelope = receipt.payload.envelope;
+          bytes += Buffer.byteLength(JSON.stringify(envelope));
+          if (bytes > limits.maxBytes) throw new Error("PROVIDER_RECOVERY_BOUND_EXCEEDED");
+          recovered.push(envelope);
+        }
+        if (after !== undefined && page.next?.capturedAt === after.capturedAt && page.next.eventId === after.eventId)
+          throw new Error("PROVIDER_RECOVERY_CURSOR_STALLED");
+        after = page.next;
+      } while (after !== undefined);
+    } while (addedInSweep > 0);
+    recovered.sort((left, right) => {
+      if (left.event.sequence === undefined) return right.event.sequence === undefined ? 0 : 1;
+      if (right.event.sequence === undefined) return -1;
+      return Number(left.event.sequence) - Number(right.event.sequence);
+    });
+    return recovered;
   }
   try {
     if (connection.kind === "spectrum") {
@@ -116,6 +220,10 @@ export async function startProviderIntake(
         if (!stopped) throw new Error("PROVIDER_LIVE_STREAM_ENDED");
       })().catch(fail);
       tasks.push(task);
+      const recovered = await recoverDurableReceipts();
+      for (const input of recovered) await enqueue(() => handoff(input, true));
+      durableRecoveryComplete = true;
+      if (stopped) throw new Error("PROVIDER_INTAKE_STOPPED");
       completion.resolve({ mode: "live-only" });
     } else {
       const checkpoint = await store.readContiguousCheckpoint(connection.line.reference);
@@ -125,19 +233,23 @@ export async function startProviderIntake(
       if (since !== undefined && providerSequence(since) !== checkpoint?.sequence)
         throw new Error("PROVIDER_CURSOR_UNREPRESENTABLE");
       const pending = new Map<string, NormalizedPhotonInput>();
+      const durableRecovery = Promise.withResolvers<readonly NormalizedPhotonInput[]>();
+      void durableRecovery.promise.catch(() => undefined);
       let bytes = 0;
       let recovering = true;
+      function stage(input: NormalizedPhotonInput) {
+        if (pending.has(input.event.eventId)) return;
+        if (input.event.sequence === undefined) throw new Error("PROVIDER_RECOVERY_SEQUENCE_MISSING");
+        bytes += Buffer.byteLength(JSON.stringify(input));
+        if (pending.size >= limits.maxEvents || bytes > limits.maxBytes)
+          throw new Error("PROVIDER_RECOVERY_BOUND_EXCEEDED");
+        pending.set(input.event.eventId, input);
+      }
       async function accept(event: LiveEvent) {
         const input = normalizeAdvancedEvent(event, connection.line);
         await capture(store, input);
-        if (recovering) {
-          if (!pending.has(input.event.eventId)) {
-            bytes += Buffer.byteLength(JSON.stringify(input));
-            if (pending.size >= limits.maxEvents || bytes > limits.maxBytes)
-              throw new Error("PROVIDER_RECOVERY_BOUND_EXCEEDED");
-            pending.set(input.event.eventId, input);
-          }
-        } else await handoff(input);
+        if (recovering) stage(input);
+        else await handoff(input);
       }
       const sdk = connection.sdk;
       const live = [
@@ -172,20 +284,30 @@ export async function startProviderIntake(
             }
             const headSequence = providerSequence(event.headSequence);
             if (since !== undefined && event.headSequence < since) throw new Error("PROVIDER_CURSOR_REGRESSED");
+            if (timer) clearTimeout(timer);
+            const recovered = await durableRecovery.promise;
             await enqueue(async () => {
+              for (const input of recovered) stage(input);
               const ordered = [...pending.values()].sort((a, b) => Number(a.event.sequence) - Number(b.event.sequence));
-              for (const input of ordered) await handoff(input);
+              for (const input of ordered) await handoff(input, true);
               pending.clear();
               recovering = false;
             });
             completed = true;
-            if (timer) clearTimeout(timer);
             if (!stopped) completion.resolve({ mode: "catchup", headSequence });
             break;
           }
           if (!stopped && !completed) throw new Error("PROVIDER_CATCHUP_INCOMPLETE");
         })().catch(fail),
       );
+      try {
+        durableRecovery.resolve(await recoverDurableReceipts());
+        durableRecoveryComplete = true;
+      } catch (error) {
+        durableRecovery.reject(error);
+        throw error;
+      }
+      if (stopped) throw new Error("PROVIDER_INTAKE_STOPPED");
     }
   } catch (error) {
     fail(error);
