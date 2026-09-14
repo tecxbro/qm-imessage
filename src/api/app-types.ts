@@ -105,6 +105,7 @@ import type { RuntimeChoice } from "../harness/harness.ts";
 import { type ReachOpts, type ReachResolution, type ReachTarget } from "../reach/reach.ts";
 import { type Project, type ProjectStore } from "../projects/project-store.ts";
 import type { SearchHit } from "../search/core-search.ts";
+import type { PhotonDestinationResolver } from "../surfaces/photon-destinations.ts";
 
 interface DeploymentVersionView {
   version: number;
@@ -618,6 +619,7 @@ export interface AppDeps {
   modelProviders?: ModelProviderAvailability;
   providerKeys?: ModelProviderAvailability;
   runtimeFallback?: RuntimeChoice;
+  photonDestinations?: PhotonDestinationResolver;
 }
 
 export interface ContextSummary {
