@@ -19,6 +19,18 @@ const { validateRepairProvenance } = (await import(
   }): { paths: string[]; requiredTests: string[] };
 };
 
+const { classifyLaneContributionPath } = (await import(
+  new URL("../scripts/imessage-verify-lane.mjs", import.meta.url).href
+)) as {
+  classifyLaneContributionPath(
+    root: string,
+    path: string,
+    laneCommit: string,
+    target: string,
+    integrationOwnedPaths: string[],
+  ): "lane" | "integration" | "drift";
+};
+
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
 function command(commandName: string, args: string[], cwd: string) {
@@ -225,6 +237,74 @@ test("repair provenance accepts disjoint siblings and derives their required tes
   );
   await writeFile(resolve(fixture.main, "dirty.txt"), "dirty\n");
   assert.throws(() => validate(fixture, target, []), /REPAIR_CANDIDATE_DIRTY/u);
+});
+
+test("lane contribution classification preserves handoffs and attributes exact coordinator adoption", async (context) => {
+  const temporary = await mkdtemp(resolve(tmpdir(), "qm-imessage-lane-adoption-"));
+  context.after(() => rm(temporary, { recursive: true, force: true }));
+  git(temporary, "init", "-b", "integration");
+  git(temporary, "config", "user.name", "Fixture");
+  git(temporary, "config", "user.email", "fixture@example.test");
+  await write(resolve(temporary, "docs/imessage/lanes/wt-01.md"), "original handoff\n");
+  await write(resolve(temporary, "plugins/chassis/src/photon-state.ts"), "export const state = 1;\n");
+  await write(resolve(temporary, "src/ordinary.ts"), "export const ordinary = 1;\n");
+  const laneCommit = commitAll(temporary, "lane contribution");
+  await write(
+    resolve(temporary, "docs/imessage/lanes/wt-01.md"),
+    "original handoff\n\n## Accepted checkpoint 1 corrections\n\nAccepted correction.\n",
+  );
+  await write(resolve(temporary, "plugins/chassis/src/photon-state.ts"), "export const state = 2;\n");
+  const accepted = commitAll(temporary, "coordinator adoption");
+  assert.equal(
+    classifyLaneContributionPath(temporary, "docs/imessage/lanes/wt-01.md", laneCommit, accepted, [
+      "docs/imessage/lanes/wt-01.md",
+      "plugins/chassis/src/photon-state.ts",
+    ]),
+    "integration",
+  );
+  assert.equal(
+    classifyLaneContributionPath(temporary, "plugins/chassis/src/photon-state.ts", laneCommit, accepted, [
+      "plugins/chassis/src/photon-state.ts",
+    ]),
+    "integration",
+  );
+  assert.equal(classifyLaneContributionPath(temporary, "src/ordinary.ts", laneCommit, accepted, []), "lane");
+  assert.equal(
+    classifyLaneContributionPath(temporary, "plugins/chassis/src/photon-state.ts", laneCommit, accepted, []),
+    "drift",
+  );
+});
+
+test("lane contribution classification rejects rewritten handoffs and false correction markers", async (context) => {
+  const temporary = await mkdtemp(resolve(tmpdir(), "qm-imessage-lane-drift-"));
+  context.after(() => rm(temporary, { recursive: true, force: true }));
+  git(temporary, "init", "-b", "integration");
+  git(temporary, "config", "user.name", "Fixture");
+  git(temporary, "config", "user.email", "fixture@example.test");
+  await write(resolve(temporary, "docs/imessage/lanes/wt-01.md"), "original handoff\n");
+  const laneCommit = commitAll(temporary, "lane contribution");
+  await write(
+    resolve(temporary, "docs/imessage/lanes/wt-01.md"),
+    "rewritten handoff\n\n## Accepted checkpoint 1 corrections\n\nAccepted correction.\n",
+  );
+  const rewritten = commitAll(temporary, "rewrite handoff");
+  assert.equal(
+    classifyLaneContributionPath(temporary, "docs/imessage/lanes/wt-01.md", laneCommit, rewritten, [
+      "docs/imessage/**",
+    ]),
+    "drift",
+  );
+  await write(
+    resolve(temporary, "docs/imessage/lanes/wt-01.md"),
+    "original handoff\n\n## Accepted checkpoint-1 corrections\n\nAccepted correction.\n",
+  );
+  const falseMarker = commitAll(temporary, "use false marker");
+  assert.equal(
+    classifyLaneContributionPath(temporary, "docs/imessage/lanes/wt-01.md", laneCommit, falseMarker, [
+      "docs/imessage/**",
+    ]),
+    "drift",
+  );
 });
 
 test("repair provenance rejects same-path siblings and accepts an explicit resolving contribution", async (context) => {
