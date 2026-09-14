@@ -10,6 +10,9 @@ type Projection = { ok: true; destination: Destination | undefined } | { ok: fal
 
 function projectPhoton(value: Destination): Projection {
   if (!isPhotonDestination(value) || value.audienceScopeId === undefined) return { ok: false };
+  if (value.onBehalfOf !== undefined && (typeof value.onBehalfOf !== "string" || value.onBehalfOf.length === 0)) {
+    return { ok: false };
+  }
   try {
     return {
       ok: true,
@@ -20,6 +23,7 @@ function projectPhoton(value: Destination): Projection {
         audienceScopeId: value.audienceScopeId,
         ...(value.recipientPrincipalId === undefined ? {} : { recipientPrincipalId: value.recipientPrincipalId }),
         ...(value.groupId === undefined ? {} : { groupId: value.groupId }),
+        ...(value.onBehalfOf === undefined ? {} : { onBehalfOf: value.onBehalfOf }),
         ...(value.providerMessage === undefined ? {} : { providerMessage: value.providerMessage }),
       }),
     };
@@ -44,11 +48,16 @@ function findCandidate(
   candidates: CandidateDestination[] | undefined,
   key: string | undefined,
 ): CandidateDestination | undefined {
-  if (key === undefined) return undefined;
-  const values: readonly unknown[] | undefined = candidates;
-  return values?.find(
+  if (typeof key !== "string" || !Array.isArray(candidates)) return undefined;
+  const values: readonly unknown[] = candidates;
+  return values.find(
     (value): value is CandidateDestination =>
-      typeof value === "object" && value !== null && !Array.isArray(value) && "key" in value && value.key === key,
+      typeof value === "object" &&
+      value !== null &&
+      !Array.isArray(value) &&
+      "key" in value &&
+      typeof value.key === "string" &&
+      value.key === key,
   );
 }
 

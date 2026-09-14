@@ -85,10 +85,16 @@ describe("Photon capability destination projection", () => {
   it("rejects an absent explicit key", () => {
     const resolved = resolveCapabilityDestination(capability({ destinations: [candidate(dm, "dm")] }), "missing");
     const malformed = capability({ destinations: [null] as unknown as CandidateDestination[] });
+    const malformedCollection = capability({ destinations: {} as CandidateDestination[] });
 
     assert.deepEqual(resolved, { ok: false });
     assert.deepEqual(resolveCapabilityDestination(malformed, "missing"), { ok: false });
     assert.deepEqual(resolveCapabilityDestination(malformed, undefined), { ok: true, destination: undefined });
+    assert.deepEqual(resolveCapabilityDestination(malformedCollection, "missing"), { ok: false });
+    assert.deepEqual(resolveCapabilityDestination(malformedCollection, undefined), {
+      ok: true,
+      destination: undefined,
+    });
   });
 
   it("rejects a foreign provider-message reference", () => {
@@ -154,7 +160,7 @@ describe("Photon capability destination projection", () => {
     );
   });
 
-  it("reconstructs Photon destinations from an allowlist", () => {
+  it("reconstructs Photon destinations from the frozen allowlist", () => {
     const extended = {
       ...candidate(dm, "extended"),
       onBehalfOf: "mallory",
@@ -165,11 +171,24 @@ describe("Photon capability destination projection", () => {
       unknown: "discarded",
     } as CandidateDestination;
     const resolved = resolveCapabilityDestination(capability({ destinations: [extended] }), "extended");
+    const expected = { ...dm, onBehalfOf: "mallory" };
 
-    assert.deepEqual(resolved, { ok: true, destination: dm });
+    assert.deepEqual(resolved, { ok: true, destination: expected });
     assert.equal(resolved.ok && "key" in (resolved.destination ?? {}), false);
     assert.equal(resolved.ok && "unknown" in (resolved.destination ?? {}), false);
-    assert.equal(resolved.ok && "onBehalfOf" in (resolved.destination ?? {}), false);
+    assert.equal(resolved.ok && resolved.destination?.onBehalfOf, "mallory");
+  });
+
+  it("rejects a malformed Photon on-behalf-of identity", () => {
+    const malformed = {
+      ...candidate(dm, "malformed-on-behalf-of"),
+      onBehalfOf: { actorId: "alice" },
+    } as unknown as CandidateDestination;
+
+    assert.deepEqual(
+      resolveCapabilityDestination(capability({ destinations: [malformed] }), "malformed-on-behalf-of"),
+      { ok: false },
+    );
   });
 
   it("keeps representative Slack projections byte-for-byte unchanged", () => {
