@@ -55,6 +55,7 @@ async function createProvenanceFixture(
   repairOwnership: {
     repairs: Record<string, RepairShape>;
     joins?: Record<string, RepairShape>;
+    lanePaths?: string[];
   },
   initialFiles: Record<string, string> = {},
 ) {
@@ -118,6 +119,9 @@ async function createProvenanceFixture(
     repository: "https://github.com/example/qm-imessage.git",
     integration: { branch: "imessage/integration", worktree: "main" },
     checkpointRepairs: { reviewedInput: reviewed, ownership: ownershipPath },
+    lanes: {
+      "wt-01": { wave: "A", ownedPaths: repairOwnership.lanePaths ?? [] },
+    },
   };
   return { temporary, workspace: main, main, reviewed, repairBase, dispatchPath, ownership, repairDocument };
 }
@@ -289,6 +293,106 @@ test("repair provenance rejects an undeclared same-path dependency", async (cont
         { repairId: "r02", baseCommit: fixture.repairBase, commit: two },
       ]),
     /REPAIR_PATH_DEPENDENCY_MISSING:r02:src\/shared\.ts:r01/u,
+  );
+});
+
+test("checkpoint integration resolution attributes an exact original-lane path", async (context) => {
+  const providerTest = "plugins/photon/test/provider.test.ts";
+  const fixture = await createProvenanceFixture(
+    {
+      repairs: {
+        r14: { branch: "cp1/r14", worktree: "worktrees/cp1-r14", ownedPaths: ["src/manager.ts"] },
+      },
+      lanePaths: [providerTest],
+    },
+    {
+      [providerTest]: "export const fallback = true;\n",
+      "src/manager.ts": "export const strict = false;\n",
+    },
+  );
+  context.after(() => rm(fixture.temporary, { recursive: true, force: true }));
+  const repair = await repairCommit(fixture.main, "cp1/r14", fixture.repairBase, {
+    "src/manager.ts": "export const strict = true;\n",
+  });
+  git(fixture.main, "checkout", "-B", "imessage/integration", repair);
+  await write(resolve(fixture.main, providerTest), "export const fallback = false;\n");
+  const resolution = commitAll(fixture.main, "resolve provider test ownership");
+  registerRepairWorktrees(fixture.main, fixture.workspace, fixture.repairDocument, [
+    { repairId: "r14", commit: repair },
+  ]);
+  const entry = {
+    id: "r14-provider-test",
+    baseCommit: repair,
+    commit: resolution,
+    ownedPaths: [providerTest],
+    dependsOn: ["r14"],
+  };
+  const validateResolution = (integrationResolution: Record<string, unknown>, target = resolution) =>
+    validateRepairProvenance({
+      root: fixture.main,
+      main: fixture.main,
+      target,
+      checkpoint: {
+        repairContributions: [{ repairId: "r14", baseCommit: fixture.repairBase, commit: repair }],
+        integrationResolutions: [integrationResolution],
+      },
+      ownership: fixture.ownership,
+    });
+  const result = validateResolution(entry) as {
+    paths: string[];
+    requiredTests: string[];
+    finalRepairForPath(path: string): { resolutionId?: string } | undefined;
+    requireOriginalPath(path: string, originalCommit: string, label: string): void;
+  };
+  assert.deepEqual(result.paths, [providerTest, "src/manager.ts"]);
+  assert.deepEqual(result.requiredTests, [providerTest]);
+  assert.equal(result.finalRepairForPath(providerTest)?.resolutionId, "r14-provider-test");
+  assert.doesNotThrow(() => result.requireOriginalPath(providerTest, fixture.repairBase, "ORIGINAL_LANE"));
+  assert.throws(
+    () => validateResolution({ ...entry, ownedPaths: ["plugins/photon/test/*.test.ts"] }),
+    /INTEGRATION_RESOLUTION_PATHS_INVALID:r14-provider-test/u,
+  );
+  assert.throws(
+    () => validateResolution({ ...entry, ownedPaths: [providerTest, "test/unlisted.test.ts"] }),
+    /INTEGRATION_RESOLUTION_CHANGED_PATHS_MISMATCH:r14-provider-test/u,
+  );
+  assert.throws(
+    () => validateResolution({ ...entry, baseCommit: fixture.repairBase }),
+    /INTEGRATION_RESOLUTION_DEPENDENCY_MISSING:r14-provider-test:r14/u,
+  );
+  assert.throws(
+    () => validateResolution({ ...entry, dependsOn: ["r99"] }),
+    /INTEGRATION_RESOLUTION_DEPENDENCY_MISSING:r14-provider-test:r99/u,
+  );
+  assert.throws(() => validateResolution({ ...entry, ignored: true }), /INTEGRATION_RESOLUTION_SCHEMA_INVALID/u);
+  git(fixture.main, "checkout", "-B", "extra-resolution", repair);
+  await write(resolve(fixture.main, providerTest), "export const fallback = false;\n");
+  await write(resolve(fixture.main, "test/unlisted.test.ts"), "export const unlisted = true;\n");
+  const extra = commitAll(fixture.main, "extra resolution path");
+  assert.throws(
+    () => validateResolution({ ...entry, commit: extra }, extra),
+    /INTEGRATION_RESOLUTION_CHANGED_PATHS_MISMATCH:r14-provider-test/u,
+  );
+  git(fixture.main, "checkout", "-B", "imessage/integration", resolution);
+  await write(resolve(fixture.main, providerTest), "export const fallback = 'drift';\n");
+  const drift = commitAll(fixture.main, "drift after resolution");
+  assert.throws(
+    () => validateResolution(entry, drift),
+    /INTEGRATION_RESOLUTION_TARGET_DRIFT:r14-provider-test:plugins\/photon\/test\/provider\.test\.ts/u,
+  );
+  git(fixture.main, "checkout", "-B", "unlisted-resolution", repair);
+  await write(resolve(fixture.main, "test/unlisted.test.ts"), "export const unlisted = true;\n");
+  const unlisted = commitAll(fixture.main, "unlisted resolution path");
+  assert.throws(
+    () => validateResolution({ ...entry, commit: unlisted, ownedPaths: ["test/unlisted.test.ts"] }, unlisted),
+    /INTEGRATION_RESOLUTION_LANE_PATH_INVALID:r14-provider-test:test\/unlisted\.test\.ts/u,
+  );
+  git(fixture.main, "checkout", "-B", "frozen-resolution", repair);
+  await write(resolve(fixture.main, "src/manager.ts"), "export const strict = 'resolved';\n");
+  const frozen = commitAll(fixture.main, "frozen resolution path");
+  assert.throws(
+    () => validateResolution({ ...entry, commit: frozen, ownedPaths: ["src/manager.ts"] }, frozen),
+    /INTEGRATION_RESOLUTION_FROZEN_PATH:r14-provider-test:src\/manager\.ts/u,
   );
 });
 
