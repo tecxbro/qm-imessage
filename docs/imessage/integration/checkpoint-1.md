@@ -98,12 +98,18 @@ Two original-lane test corrections are separately recorded by exact base, commit
 
 ## Integrated verification evidence
 
+- The repair-profile integration gate ran all 36 mandatory test files and the root, Photon, and web UI typechecks with PostgreSQL required, ending `VERIFIED:integration:17f7e09f8f1549766e64f995b019f7f7e14d5781:6:32`.
 - Combined repair PostgreSQL union: 34 passed, 0 failed, 0 skipped across selected-session CAS, receipt recovery, delivery recovery/progress, ciphertext state, DM backlinks, migrations/grants, and line ownership. Each suite created its own disposable database and ran serially.
 - Photon package suite after the recorded integration resolutions: 178 passed, 0 failed, 0 skipped.
 - Core composition, source authentication, Photon routes, and ordinary route authorization: 27 passed, 0 failed.
 - Final R13 focused repair-tooling suite: 12 top-level tests passed, 0 failed.
 - Root and Photon typechecks passed before documentation capture.
+- ESLint, oxlint with warnings denied, repository formatting, and `git diff --check` passed on the integrated tree.
 - The production-shaped dev launcher could not claim a Slack app because every local pool slot was occupied. No live Slack or production-shaped browser result is claimed.
+
+## Final review
+
+An independent code, security, and concurrency review found no actionable defects. A separate provenance and evidence review verified every registered repair head, final join ancestry, unchanged immutable records, and the absent f1 checkpoint/tag and Wave B worktrees. Its only finding was an intermediate R04 SHA in the append-only WT03 correction record; that reference was updated to the captured final R04 head before final verification.
 
 ## Open activation blockers
 
