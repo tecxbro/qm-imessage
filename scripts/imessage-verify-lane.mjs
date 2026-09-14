@@ -31,6 +31,13 @@ export function repairProvenance(options) {
   };
 }
 
+export function repairCoordinatorIdentity(options) {
+  const declared = options.checkpoint.repairContributions;
+  if (declared === undefined || (Array.isArray(declared) && declared.length === 0)) return undefined;
+  if (corrections === undefined) throw new Error("REPAIR_HELPER_MISSING");
+  return corrections.resolveRepairCoordinatorIdentity(options);
+}
+
 export function run(command, args, cwd, options = {}) {
   const environment = { ...process.env, ...options.env };
   delete environment.NODE_TEST_CONTEXT;
@@ -112,11 +119,13 @@ function repositoryContext(root, ownership) {
 
 function requireIdentity(root, branch, worktree, context) {
   const expectedPath = resolve(context.workspace, worktree);
+  const canonicalWorkspace = realpathSync(context.workspace);
+  const canonicalExpectedPath = existsSync(expectedPath) ? realpathSync(expectedPath) : undefined;
   if (
-    !existsSync(expectedPath) ||
+    canonicalExpectedPath === undefined ||
     lstatSync(expectedPath).isSymbolicLink() ||
-    !realpathSync(expectedPath).startsWith(`${realpathSync(context.workspace)}/`) ||
-    realpathSync(root) !== realpathSync(expectedPath)
+    (canonicalExpectedPath !== canonicalWorkspace && !canonicalExpectedPath.startsWith(`${canonicalWorkspace}/`)) ||
+    realpathSync(root) !== canonicalExpectedPath
   ) {
     throw new Error(`WORKTREE_PATH_MISMATCH:${root}:${expectedPath}`);
   }
@@ -278,9 +287,11 @@ export function requireBase(root, ref, expectedCommit) {
   return resolved;
 }
 
-function waveCheckpoint(context, ownership, wave) {
-  const integrationRoot = resolve(context.workspace, ownership.integration.worktree);
-  requireIdentity(integrationRoot, ownership.integration.branch, ownership.integration.worktree, context);
+function waveCheckpoint(context, ownership, wave, selectedIdentity) {
+  const identity = selectedIdentity ?? { ...ownership.integration, workspace: context.workspace };
+  const identityContext = { ...context, workspace: identity.workspace };
+  const integrationRoot = resolve(identity.workspace, identity.worktree);
+  requireIdentity(integrationRoot, identity.branch, identity.worktree, identityContext);
   const checkpointPath = checkpointPaths[wave];
   if (checkpointPath === undefined) throw new Error(`WAVE_CHECKPOINT_UNSUPPORTED:${wave}`);
   if (wave === "A" && ownership.integration.foundationCheckpoint !== checkpointPath) {
@@ -301,7 +312,7 @@ function waveCheckpoint(context, ownership, wave) {
       capture: true,
       allowFailure: true,
     }).status !== 0 ||
-    git(context.main, ["merge-base", "--is-ancestor", tagTarget, ownership.integration.branch], {
+    git(context.main, ["merge-base", "--is-ancestor", tagTarget, identity.branch], {
       capture: true,
       allowFailure: true,
     }).status !== 0
@@ -317,7 +328,7 @@ function waveCheckpoint(context, ownership, wave) {
     requireOwned(foundationPaths, ownership.integration.ownedPaths, "foundation");
   } else {
     const previousWave = { B: "A", C: "B", D: "C" }[wave];
-    const previous = waveCheckpoint(context, ownership, previousWave);
+    const previous = waveCheckpoint(context, ownership, previousWave, identity);
     const inputBase = resolveCommit(context.main, checkpoint.inputBaseCommit, "WAVE_INPUT_BASE");
     if (inputBase !== checkpoint.inputBaseCommit) {
       throw new Error(`WAVE_INPUT_BASE_TARGET_MISMATCH:${checkpoint.inputBaseCommit}`);
@@ -406,7 +417,7 @@ function waveCheckpoint(context, ownership, wave) {
   return checkpoint;
 }
 
-function expectedLaneBase(root, context, ownership, lane) {
+function expectedLaneBase(root, context, ownership, lane, selectedIdentity) {
   let expected;
   if (lane === ownership.lanes["wt-00"]) {
     if (!/^[a-f0-9]{40}$/u.test(ownership.originalBaseline)) {
@@ -414,7 +425,7 @@ function expectedLaneBase(root, context, ownership, lane) {
     }
     expected = ownership.originalBaseline;
   } else {
-    const checkpoint = waveCheckpoint(context, ownership, lane.wave);
+    const checkpoint = waveCheckpoint(context, ownership, lane.wave, selectedIdentity);
     expected = checkpoint.tagTarget;
     if (checkpoint.tag !== lane.baseRef) {
       throw new Error(`IMMUTABLE_BASE_TAG_MISMATCH:${lane.baseRef}:${checkpoint.tag}`);
@@ -543,14 +554,20 @@ function verifyIntegration(root, ownership, checkpointPath) {
   requireRegularFileInside(root, resolvedCheckpointPath, "INTEGRATION_CHECKPOINT");
   const checkpoint = JSON.parse(readFileSync(resolvedCheckpointPath, "utf8"));
   const context = repositoryContext(root, ownership);
-  requireIdentity(root, ownership.integration.branch, ownership.integration.worktree, context);
+  const target = resolveCommit(root, "HEAD", "INTEGRATION_TARGET");
+  const selectedIdentity = repairCoordinatorIdentity({ root, main: context.main, target, checkpoint, ownership }) ?? {
+    ...ownership.integration,
+    workspace: context.workspace,
+  };
+  const identityContext = { ...context, workspace: selectedIdentity.workspace };
+  requireIdentity(root, selectedIdentity.branch, selectedIdentity.worktree, identityContext);
   const inputBase = resolveCommit(root, checkpoint.inputBaseCommit, "INPUT_BASE");
   if (inputBase !== checkpoint.inputBaseCommit) throw new Error(`INPUT_BASE_TARGET_MISMATCH:${inputBase}`);
   const permittedInputBases = new Set([ownership.reviewedFoundationCommit]);
   for (const wave of ["A", "B", "C", "D"]) {
     const checkpointPath = checkpointPaths[wave];
-    if (existsSync(resolve(context.workspace, ownership.integration.worktree, checkpointPath))) {
-      permittedInputBases.add(waveCheckpoint(context, ownership, wave).tagTarget);
+    if (existsSync(resolve(root, checkpointPath))) {
+      permittedInputBases.add(waveCheckpoint(context, ownership, wave, selectedIdentity).tagTarget);
     }
   }
   if (!permittedInputBases.has(inputBase)) throw new Error(`INPUT_BASE_NOT_RECORDED:${inputBase}`);
@@ -561,7 +578,6 @@ function verifyIntegration(root, ownership, checkpointPath) {
   }
   const contributionPaths = new Set();
   const localPaths = new Set(changedPaths(root, "HEAD"));
-  const target = resolveCommit(root, "HEAD", "INTEGRATION_TARGET");
   const repairs = repairProvenance({ root, main: context.main, target, checkpoint, ownership });
   for (const contribution of checkpoint.laneContributions ?? []) {
     const lane = ownership.lanes[contribution.laneId];
@@ -572,7 +588,7 @@ function verifyIntegration(root, ownership, checkpointPath) {
     if (laneBase !== contribution.baseCommit) throw new Error(`LANE_BASE_TARGET_MISMATCH:${contribution.laneId}`);
     if (laneCommit !== contribution.commit) throw new Error(`LANE_COMMIT_TARGET_MISMATCH:${contribution.laneId}`);
     const configuredBase = resolveTagCommit(root, lane.baseRef, "LANE_CONFIGURED_BASE");
-    const expectedBase = expectedLaneBase(root, context, ownership, lane);
+    const expectedBase = expectedLaneBase(root, context, ownership, lane, selectedIdentity);
     if (configuredBase !== expectedBase) {
       throw new Error(
         `LANE_CONFIGURED_BASE_TARGET_MISMATCH:${contribution.laneId}:${configuredBase}:${lane.baseCommit}`,

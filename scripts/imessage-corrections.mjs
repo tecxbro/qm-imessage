@@ -205,6 +205,18 @@ function requiredTestsFor(entry) {
   return entry.ownedPaths.filter((path) => !path.includes("*") && path.endsWith(".test.ts"));
 }
 
+export function resolveRepairCoordinatorIdentity({ root, main, target, checkpoint, ownership }) {
+  const declared = checkpoint.repairContributions;
+  if (declared === undefined || (Array.isArray(declared) && declared.length === 0)) return undefined;
+  if (!Array.isArray(declared)) throw new Error("REPAIR_CONTRIBUTIONS_INVALID");
+  if (ownership.checkpointRepairs?.ownership === undefined) throw new Error("REPAIR_PROFILE_MISSING");
+  const targetCommit = exactCommit(main, target, "REPAIR_TARGET");
+  const profile = readRepairOwnership(root, main, ownership, targetCommit);
+  if (!profile.active) throw new Error(`REPAIR_BASE_NOT_ANCESTOR:${profile.repairBase}`);
+  const { branch, worktree } = profile.repairOwnership.coordinator;
+  return { branch, worktree, workspace: profile.paths.workspace };
+}
+
 export function validateRepairProvenance({ root, main, target, checkpoint, ownership }) {
   const declared = checkpoint.repairContributions;
   const declaredResolutions = checkpoint.integrationResolutions;
