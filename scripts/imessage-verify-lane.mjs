@@ -16,6 +16,21 @@ import { dirname, isAbsolute, relative, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { spawnSync } from "node:child_process";
 
+const correctionsUrl = new URL("./imessage-corrections.mjs", import.meta.url);
+const corrections = existsSync(fileURLToPath(correctionsUrl)) ? await import(correctionsUrl.href) : undefined;
+
+export function repairProvenance(options) {
+  if (corrections !== undefined) return corrections.validateRepairProvenance(options);
+  if ((options.checkpoint.repairContributions ?? []).length > 0) throw new Error("REPAIR_HELPER_MISSING");
+  return {
+    contributions: [],
+    paths: [],
+    requiredTests: [],
+    finalRepairForPath: () => undefined,
+    requireOriginalPath: () => {},
+  };
+}
+
 export function run(command, args, cwd, options = {}) {
   const environment = { ...process.env, ...options.env };
   delete environment.NODE_TEST_CONTEXT;
@@ -156,14 +171,35 @@ function immutableCheckpoint(integrationRoot, checkpointPath, label) {
   const introduction = additions[0];
   if (introduction === undefined) throw new Error(`${label}_NOT_COMMITTED:${checkpointPath}`);
   const introduced = git(integrationRoot, ["show", `${introduction}:${checkpointPath}`], { capture: true }).stdout;
-  const atHead = git(integrationRoot, ["show", `HEAD:${checkpointPath}`], { capture: true, allowFailure: true });
-  if (atHead.status !== 0 || atHead.stdout !== introduced || readFileSync(absolute, "utf8").trim() !== introduced) {
+  const introducedBlob = git(integrationRoot, ["rev-parse", `${introduction}:${checkpointPath}`], {
+    capture: true,
+  }).stdout;
+  const atHeadBlob = git(integrationRoot, ["rev-parse", `HEAD:${checkpointPath}`], {
+    capture: true,
+    allowFailure: true,
+  });
+  const worktreeBlob = git(integrationRoot, ["hash-object", absolute], { capture: true, allowFailure: true });
+  if (
+    atHeadBlob.status !== 0 ||
+    atHeadBlob.stdout !== introducedBlob ||
+    worktreeBlob.status !== 0 ||
+    worktreeBlob.stdout !== introducedBlob
+  ) {
     throw new Error(`${label}_MUTATED:${checkpointPath}:${introduction}`);
   }
   return JSON.parse(introduced);
 }
 
-export function verifyCheckpointScope(integrationRoot, main, target, ownership, checkpoint, contributions, label) {
+export function verifyCheckpointScope(
+  integrationRoot,
+  main,
+  target,
+  ownership,
+  checkpoint,
+  contributions,
+  label,
+  repairTests = [],
+) {
   const requiredTests = new Set(ownership.integration.testFiles);
   const requiredTypechecks = new Set(ownership.integration.typecheckPackages);
   for (const contribution of contributions) {
@@ -171,6 +207,7 @@ export function verifyCheckpointScope(integrationRoot, main, target, ownership, 
     for (const testFile of lane.testFiles) requiredTests.add(testFile);
     for (const packagePath of lane.typecheckPackages ?? []) requiredTypechecks.add(packagePath);
   }
+  for (const testFile of repairTests) requiredTests.add(testFile);
   const checkpointTests = [...new Set(checkpoint.testFiles ?? [])].sort();
   const checkpointTypechecks = [...new Set(checkpoint.typecheckPackages ?? [])].sort();
   if (JSON.stringify(checkpointTests) !== JSON.stringify([...requiredTests].sort())) {
@@ -298,6 +335,13 @@ function waveCheckpoint(context, ownership, wave) {
       throw new Error(`WAVE_LANE_SET_MISMATCH:${checkpointPath}:${actualLaneIds.join(",")}`);
     }
     const contributionPaths = new Set();
+    const repairs = repairProvenance({
+      root: integrationRoot,
+      main: context.main,
+      target: tagTarget,
+      checkpoint,
+      ownership,
+    });
     for (const contribution of contributions) {
       const lane = ownership.lanes[contribution.laneId];
       const laneBase = resolveCommit(context.main, contribution.baseCommit, "WAVE_LANE_BASE");
@@ -325,7 +369,10 @@ function waveCheckpoint(context, ownership, wave) {
       );
       requireOwned(paths, lane.ownedPaths, contribution.laneId);
       for (const path of paths) {
-        if (
+        const repair = repairs.finalRepairForPath(path);
+        if (repair !== undefined) {
+          repairs.requireOriginalPath(path, laneCommit, `WAVE_LANE_CONTRIBUTION:${contribution.laneId}`);
+        } else if (
           git(context.main, ["diff", "--quiet", laneCommit, tagTarget, "--", path], {
             capture: true,
             allowFailure: true,
@@ -336,6 +383,7 @@ function waveCheckpoint(context, ownership, wave) {
       }
       paths.forEach((path) => contributionPaths.add(path));
     }
+    repairs.paths.forEach((path) => contributionPaths.add(path));
     const assembled = nameStatusPaths(
       git(context.main, ["diff", "--name-status", "-z", `${inputBase}..${tagTarget}`], { capture: true }).stdout,
     );
@@ -352,6 +400,7 @@ function waveCheckpoint(context, ownership, wave) {
       checkpoint,
       contributions,
       `WAVE_${previousWave}`,
+      repairs.requiredTests,
     );
   }
   return checkpoint;
@@ -512,6 +561,8 @@ function verifyIntegration(root, ownership, checkpointPath) {
   }
   const contributionPaths = new Set();
   const localPaths = new Set(changedPaths(root, "HEAD"));
+  const target = resolveCommit(root, "HEAD", "INTEGRATION_TARGET");
+  const repairs = repairProvenance({ root, main: context.main, target, checkpoint, ownership });
   for (const contribution of checkpoint.laneContributions ?? []) {
     const lane = ownership.lanes[contribution.laneId];
     if (lane === undefined || contribution.laneId === "wt-00")
@@ -547,7 +598,10 @@ function verifyIntegration(root, ownership, checkpointPath) {
     requireOwned(paths, lane.ownedPaths, contribution.laneId);
     for (const path of paths) {
       if (localPaths.has(path)) throw new Error(`LANE_CONTRIBUTION_LOCAL_DRIFT:${contribution.laneId}:${path}`);
-      if (
+      const repair = repairs.finalRepairForPath(path);
+      if (repair !== undefined) {
+        repairs.requireOriginalPath(path, laneCommit, `LANE_CONTRIBUTION:${contribution.laneId}`);
+      } else if (
         git(root, ["diff", "--quiet", laneCommit, "HEAD", "--", path], { capture: true, allowFailure: true }).status !==
         0
       ) {
@@ -556,6 +610,7 @@ function verifyIntegration(root, ownership, checkpointPath) {
       contributionPaths.add(path);
     }
   }
+  repairs.paths.forEach((path) => contributionPaths.add(path));
   const assembledPaths = changedPaths(root, inputBase);
   const integrationPaths = assembledPaths.filter((path) => !contributionPaths.has(path));
   requireOwned(integrationPaths, ownership.integration.ownedPaths, "integration");
@@ -567,6 +622,7 @@ function verifyIntegration(root, ownership, checkpointPath) {
       requiredTypechecks.add(packagePath);
     }
   }
+  for (const testFile of repairs.requiredTests) requiredTests.add(testFile);
   const checkpointTests = [...new Set(checkpoint.testFiles ?? [])].sort();
   const checkpointTypechecks = [...new Set(checkpoint.typecheckPackages ?? [])].sort();
   if (JSON.stringify(checkpointTests) !== JSON.stringify([...requiredTests].sort())) {

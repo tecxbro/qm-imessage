@@ -5,7 +5,7 @@ import { dirname, relative, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { spawnSync } from "node:child_process";
 
-import { verifyCheckpointScope } from "./imessage-verify-lane.mjs";
+import { repairProvenance, verifyCheckpointScope } from "./imessage-verify-lane.mjs";
 
 function git(cwd, args, allowFailure = false) {
   const result = spawnSync("git", ["-C", cwd, ...args], { encoding: "utf8" });
@@ -142,8 +142,15 @@ function requireWaveCheckpoint(scriptRoot, context, ownership, wave) {
   const introduction = introductions[0];
   if (introduction === undefined) throw new Error(`WAVE_CHECKPOINT_NOT_COMMITTED:${checkpointPath}`);
   const introduced = git(scriptRoot, ["show", `${introduction}:${checkpointPath}`]).stdout;
-  const atHead = git(scriptRoot, ["show", `HEAD:${checkpointPath}`], true);
-  if (atHead.status !== 0 || atHead.stdout !== introduced || readFileSync(path, "utf8").trim() !== introduced) {
+  const introducedBlob = git(scriptRoot, ["rev-parse", `${introduction}:${checkpointPath}`]).stdout;
+  const atHeadBlob = git(scriptRoot, ["rev-parse", `HEAD:${checkpointPath}`], true);
+  const worktreeBlob = git(scriptRoot, ["hash-object", path], true);
+  if (
+    atHeadBlob.status !== 0 ||
+    atHeadBlob.stdout !== introducedBlob ||
+    worktreeBlob.status !== 0 ||
+    worktreeBlob.stdout !== introducedBlob
+  ) {
     throw new Error(`WAVE_CHECKPOINT_MUTATED:${checkpointPath}:${introduction}`);
   }
   const checkpoint = JSON.parse(introduced);
@@ -185,6 +192,13 @@ function requireWaveCheckpoint(scriptRoot, context, ownership, wave) {
       throw new Error(`WAVE_LANE_SET_MISMATCH:${checkpointPath}:${actualLaneIds.join(",")}`);
     }
     const contributionPaths = new Set();
+    const repairs = repairProvenance({
+      root: scriptRoot,
+      main: context.main,
+      target: target.stdout,
+      checkpoint,
+      ownership,
+    });
     for (const contribution of contributions) {
       const lane = ownership.lanes[contribution.laneId];
       const laneBase = exactCommit(context.main, contribution.baseCommit, "WAVE_LANE_BASE");
@@ -205,12 +219,16 @@ function requireWaveCheckpoint(scriptRoot, context, ownership, wave) {
         throw new Error(`WAVE_LANE_UNOWNED_PATHS:${contribution.laneId}:${laneUnowned.join(",")}`);
       }
       for (const entry of paths) {
-        if (git(context.main, ["diff", "--quiet", laneCommit, target.stdout, "--", entry], true).status !== 0) {
+        const repair = repairs.finalRepairForPath(entry);
+        if (repair !== undefined) {
+          repairs.requireOriginalPath(entry, laneCommit, `WAVE_LANE_CONTRIBUTION:${contribution.laneId}`);
+        } else if (git(context.main, ["diff", "--quiet", laneCommit, target.stdout, "--", entry], true).status !== 0) {
           throw new Error(`WAVE_LANE_CONTRIBUTION_DRIFT:${contribution.laneId}:${entry}`);
         }
       }
       paths.forEach((entry) => contributionPaths.add(entry));
     }
+    repairs.paths.forEach((entry) => contributionPaths.add(entry));
     const unowned = changedPaths(context.main, checkpoint.inputBaseCommit, target.stdout).filter(
       (entry) =>
         !contributionPaths.has(entry) && !ownership.integration.ownedPaths.some((pattern) => matches(entry, pattern)),
@@ -224,6 +242,7 @@ function requireWaveCheckpoint(scriptRoot, context, ownership, wave) {
       checkpoint,
       contributions,
       `WAVE_${previousWave}`,
+      repairs.requiredTests,
     );
   }
   return checkpoint;
