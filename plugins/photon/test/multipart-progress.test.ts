@@ -18,6 +18,7 @@ import {
 } from "../src/provider/clients.ts";
 import { constructAdvanced, narrowSpectrum, type SpectrumSpace } from "../src/provider/compatibility.ts";
 import { createConnectionManager } from "../src/provider/connection.ts";
+import type { ProviderLineOwnership } from "../src/provider/line-owner.ts";
 import type { ProviderLine } from "../src/provider/capabilities.ts";
 import type { DeliveryDispatchClaim, PhotonDeliveryDispatch, PhotonDeliveryProgressPort } from "../src/ports.ts";
 import { FakeEventReceiptStore } from "./fixtures.ts";
@@ -26,6 +27,30 @@ const timestamp = new Date("2026-09-12T12:00:00.000Z");
 const phone = "+15550000001";
 const chatGuid = "any;+;test-group";
 const credentials = { address: "127.0.0.1:1", token: "offline-token" };
+
+function testOwnership(): ProviderLineOwnership {
+  return {
+    async acquire(key) {
+      let active = true;
+      return {
+        claim: {
+          key: structuredClone(key),
+          ownerId: "multipart-progress-owner",
+          fence: 1,
+          leaseExpiresAt: "2099-01-01T00:00:00.000Z",
+        },
+        assertActive() {
+          if (!active) throw new Error("PROVIDER_LINE_OWNERSHIP_LOST");
+        },
+        async release() {
+          if (!active) return false;
+          active = false;
+          return true;
+        },
+      };
+    },
+  };
+}
 
 interface ProgressHooks {
   assertCanContinue?(
@@ -220,12 +245,15 @@ async function advancedHarness(scope = line("advanced-imessage")) {
   };
   mock.method(sdk.chats, "get", async () => advancedChat());
   mock.method(sdk.messages, "get", async (guid: string) => advancedMessage({ guid, isFromMe: true }));
-  const manager = createConnectionManager({
-    advanced: () => sdk,
-    spectrum: async () => {
-      throw new Error("unexpected-spectrum");
+  const manager = createConnectionManager(
+    {
+      advanced: () => sdk,
+      spectrum: async () => {
+        throw new Error("unexpected-spectrum");
+      },
     },
-  });
+    testOwnership(),
+  );
   const connection = await manager.replace(scope, credentials);
   if (connection.kind !== "advanced") throw new Error("wrong-provider");
   return {
@@ -238,7 +266,7 @@ async function advancedHarness(scope = line("advanced-imessage")) {
 }
 
 async function spectrumHarness(scope = line("spectrum-imessage")) {
-  const manager = createConnectionManager();
+  const manager = createConnectionManager(undefined, testOwnership());
   const connection = await manager.replace(scope, credentials);
   if (connection.kind !== "spectrum") throw new Error("wrong-provider");
   const sdk = narrowSpectrum(connection.sdk);
