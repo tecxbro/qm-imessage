@@ -70,6 +70,13 @@ export interface PhotonMessageAuthorizationPort {
   >;
 }
 
+export interface PhotonOriginalSessionResolver {
+  resolve(
+    source: PhotonOperationSource,
+    operation: QmChannelOperationRequest,
+  ): Promise<PhotonConversationAuthorizationBinding>;
+}
+
 export interface PhotonActionAuthorizationPort {
   read(conversation: ConversationReference, bindingId: string): Promise<ActionBinding | undefined>;
   consume(request: {
@@ -92,7 +99,7 @@ export interface PhotonAuthorizationDeps {
   installations: PhotonInstallationAuthorizationPort;
   identities: PhotonCanonicalIdentityAuthorizationPort;
   conversations: PhotonConversationAuthorizationPort;
-  messages: PhotonMessageAuthorizationPort;
+  messages?: PhotonMessageAuthorizationPort;
   actions: PhotonActionAuthorizationPort;
   runs: Pick<RunStore, "get">;
   now?: () => number;
@@ -231,6 +238,46 @@ function actionRequest(binding: ActionBinding, actor: ProviderActorReference, no
   };
 }
 
+export function createPhotonOriginalSessionResolver(
+  deps: Pick<PhotonAuthorizationDeps, "actions" | "conversations" | "messages">,
+): PhotonOriginalSessionResolver {
+  return {
+    async resolve(source, operation) {
+      if (operation.name === "turn.start" && source.input.kind === "message" && source.input.replyTo) {
+        const replyTo = source.input.replyTo;
+        if (!sameConversation(replyTo, source.conversation)) deny("reply_scope_mismatch");
+        const original = await deps.messages?.findByProviderPart(replyTo);
+        if (
+          !original ||
+          !sameConversation(original.providerMessage.conversation, source.conversation) ||
+          !original.providerMessage.parts.some(
+            (part) => part.messageId === replyTo.messageId && part.partIndex === replyTo.partIndex,
+          )
+        ) {
+          deny("reply_binding_missing");
+        }
+        return {
+          conversation: original.providerMessage.conversation,
+          qmSessionId: original.qmSessionId,
+          resourceRevision: original.resourceRevision,
+        };
+      }
+      if (operation.name === "approval.resolve") {
+        const action = await deps.actions.read(source.conversation, operation.input.bindingId);
+        if (!action || !sameConversation(action.conversation, source.conversation)) deny("action_not_authorized");
+        return {
+          conversation: action.conversation,
+          qmSessionId: action.session.sessionId,
+          resourceRevision: action.resourceRevision,
+        };
+      }
+      const selected = await deps.conversations.find(source.conversation);
+      if (!selected || !sameConversation(selected.conversation, source.conversation)) deny("conversation_unlinked");
+      return selected;
+    },
+  };
+}
+
 export interface PhotonAuthorizer {
   check(source: PhotonOperationSource, operation: QmChannelOperationRequest): Promise<CheckedQmChannelOperation>;
   authorize(
@@ -242,6 +289,7 @@ export interface PhotonAuthorizer {
 
 export function createPhotonAuthorization(deps: PhotonAuthorizationDeps): PhotonAuthorizer {
   const now = deps.now ?? Date.now;
+  const originalSessions = createPhotonOriginalSessionResolver(deps);
 
   async function authorize(
     source: PhotonOperationSource,
@@ -284,44 +332,7 @@ export function createPhotonAuthorization(deps: PhotonAuthorizationDeps): Photon
       deny("human_unlinked");
     }
 
-    let action: ActionBinding | undefined;
-    let binding: PhotonConversationAuthorizationBinding;
-
-    if (operation.name === "turn.start" && currentSource.input.kind === "message" && currentSource.input.replyTo) {
-      const replyTo = currentSource.input.replyTo;
-      if (!sameConversation(replyTo, source.conversation)) deny("reply_scope_mismatch");
-      const original = await deps.messages.findByProviderPart(replyTo);
-      if (
-        !original ||
-        !sameConversation(original.providerMessage.conversation, source.conversation) ||
-        !original.providerMessage.parts.some(
-          (part) => part.messageId === replyTo.messageId && part.partIndex === replyTo.partIndex,
-        )
-      ) {
-        deny("reply_binding_missing");
-      }
-      binding = {
-        conversation: original.providerMessage.conversation,
-        qmSessionId: original.qmSessionId,
-        resourceRevision: original.resourceRevision,
-      };
-    } else if (operation.name === "approval.resolve") {
-      action = await deps.actions.read(source.conversation, operation.input.bindingId);
-      if (!action || !sameConversation(action.conversation, source.conversation)) {
-        deny("action_not_authorized");
-      }
-      binding = {
-        conversation: action.conversation,
-        qmSessionId: action.session.sessionId,
-        resourceRevision: action.resourceRevision,
-      };
-    } else {
-      const selected = await deps.conversations.find(source.conversation);
-      if (!selected || !sameConversation(selected.conversation, source.conversation)) {
-        deny("conversation_unlinked");
-      }
-      binding = selected;
-    }
+    const binding = await originalSessions.resolve(currentSource, operation);
 
     const claimedSessionId = operationSessionId(operation);
     if (claimedSessionId !== undefined && claimedSessionId !== binding.qmSessionId) deny("session_mismatch");
@@ -348,7 +359,9 @@ export function createPhotonAuthorization(deps: PhotonAuthorizationDeps): Photon
     }
 
     let approval: AuthorizedPhotonOperation["approval"];
+    let action: ActionBinding | undefined;
     if (operation.name === "approval.resolve") {
+      action = await deps.actions.read(source.conversation, operation.input.bindingId);
       const actionExpiry = action ? Date.parse(action.expiresAt) : Number.NaN;
       if (
         !action ||

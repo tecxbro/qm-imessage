@@ -109,6 +109,7 @@ interface ScenarioState {
   consumedAction: boolean;
   conversationLookupAvailable: boolean;
   messages: Map<string, MessageBinding>;
+  run?: { id: string; sessionId: string; visible: boolean };
   selected: SessionKey;
   visibleSessions: Set<string>;
   calls: ScenarioCalls;
@@ -221,6 +222,19 @@ function approvalOperation(
   };
 }
 
+function steerOperation(
+  sourceInput: PhotonOperationSource,
+  runId: string,
+): Extract<QmChannelOperationRequest, { name: "turn.steer" }> {
+  return {
+    operationId: `operation-${sourceInput.event.eventId}`,
+    name: "turn.steer",
+    actorId: ACTOR_ID,
+    idempotencyKey: `logical-${sourceInput.event.eventId}`,
+    input: { runId, text: "continue" },
+  };
+}
+
 function approvalRecord(session: Session, requestId = "approval-a"): PendingApprovalRecord & { requestId: string } {
   return {
     requestId,
@@ -254,7 +268,7 @@ function actionBinding(
   };
 }
 
-function createScenario(): Scenario {
+function createScenario(options: { includeMessages?: boolean } = {}): Scenario {
   const calls: ScenarioCalls = {
     actionConsumptionRequests: [],
     actionConsumes: 0,
@@ -295,9 +309,11 @@ function createScenario(): Scenario {
       if (viewer !== ACTOR_ID) return null;
       return state.approvals.get(requestId) ?? null;
     },
-    getRun: async () => {
+    getRun: async (runId) => {
       calls.runStoreReads += 1;
-      return null;
+      return state.run?.id === runId && state.run.visible
+        ? { status: "running", result: null, startedAt: Date.parse("2026-09-12T08:00:00.000Z"), finishedAt: null }
+        : null;
     },
     getSessionForViewer: async (sessionId) => {
       calls.sessionReads += 1;
@@ -332,7 +348,7 @@ function createScenario(): Scenario {
       return action;
     },
   };
-  const dependencies = {
+  const dependencies: PhotonAuthorizationDeps = {
     app: authApp,
     installations: {
       async read(installationId: string) {
@@ -373,17 +389,50 @@ function createScenario(): Scenario {
     },
     actions,
     runs: {
-      async get() {
+      async get(runId) {
         calls.runStoreReads += 1;
-        return null;
+        if (state.run?.id !== runId) return null;
+        return {
+          id: state.run.id,
+          sessionId: state.run.sessionId,
+          status: "running",
+          request: {
+            surface: "photon",
+            actor: { id: ACTOR_ID, type: "internal" },
+            conversation: {
+              kind: "dm",
+              threadRef: state.run.sessionId,
+              audience: [{ id: ACTOR_ID, type: "internal" }],
+            },
+            text: "running",
+            origin: { kind: "human" },
+          },
+          result: null,
+          deliveryState: null,
+          turnUserSeq: null,
+          dedupKey: null,
+          attempts: 1,
+          errorAttempts: 0,
+          maxAttempts: 3,
+          leaseToken: "lease-1",
+          leaseExpiresAt: Date.parse("2026-09-12T09:00:00.000Z"),
+          workerId: "worker-1",
+          createdAt: Date.parse("2026-09-12T07:00:00.000Z"),
+          startedAt: Date.parse("2026-09-12T07:01:00.000Z"),
+          finishedAt: null,
+        };
       },
     },
-    messages: {
-      async findByProviderPart(part: MessagePartReference) {
-        calls.messageLookups.push(part);
-        return state.messages.get(partKey(part));
-      },
-    },
+    ...(options.includeMessages === false
+      ? {}
+      : {
+          messages: {
+            async findByProviderPart(part: MessagePartReference) {
+              calls.messageLookups.push(part);
+              return state.messages.get(partKey(part));
+            },
+          },
+        }),
     now: () => Date.parse("2026-09-12T08:00:00.000Z"),
   };
   const authorization = createPhotonAuthorization(dependencies);
@@ -476,6 +525,12 @@ test("unbound and foreign message parts fail before QM business effects", async 
   await rejectsCode(unboundScenario.core.check(unboundSource, startOperation(unboundSource)), "reply_binding_missing");
   assertNoOrdinaryEffects(unboundScenario.state);
 
+  const unwiredScenario = createScenario({ includeMessages: false });
+  const unwired = messagePart("unwired");
+  const unwiredSource = source("unwired-event", "cannot resolve", unwired);
+  await rejectsCode(unwiredScenario.core.check(unwiredSource, startOperation(unwiredSource)), "reply_binding_missing");
+  assertNoOrdinaryEffects(unwiredScenario.state);
+
   const foreignScenario = createScenario();
   const foreignLookup = messagePart("foreign-binding");
   foreignScenario.state.messages.set(partKey(foreignLookup), messageBinding(foreignLookup, "a", FOREIGN_CONVERSATION));
@@ -514,6 +569,21 @@ test("reply authorization rejects revoked A, a spoofed actor, and a caller-suppl
   await rejectsCode(revokedScenario.core.execute(revokedSource, revokedChecked), "membership_revoked");
   assertNoOrdinaryEffects(revokedScenario.state);
 
+  const staleRevisionScenario = createScenario();
+  const staleRevisionPart = messagePart("stale-revision-a");
+  staleRevisionScenario.state.messages.set(partKey(staleRevisionPart), messageBinding(staleRevisionPart, "a"));
+  const staleRevisionSource = source("stale-revision-event", "revoked revision", staleRevisionPart);
+  const staleRevisionChecked = await staleRevisionScenario.core.check(
+    staleRevisionSource,
+    startOperation(staleRevisionSource),
+  );
+  staleRevisionScenario.state.authorizedRevisions.delete(REVISION_A);
+  await rejectsCode(
+    staleRevisionScenario.core.execute(staleRevisionSource, staleRevisionChecked),
+    "resource_revision_revoked",
+  );
+  assertNoOrdinaryEffects(staleRevisionScenario.state);
+
   const spoofedActorScenario = createScenario();
   const spoofedActorPart = messagePart("spoofed-actor");
   spoofedActorScenario.state.messages.set(partKey(spoofedActorPart), messageBinding(spoofedActorPart, "a"));
@@ -536,6 +606,21 @@ test("reply authorization rejects revoked A, a spoofed actor, and a caller-suppl
     "session_mismatch",
   );
   assertNoOrdinaryEffects(spoofedSessionScenario.state);
+});
+
+test("execution revalidates run ownership after a successful check", async () => {
+  const scenario = createScenario();
+  const runId = "run-a";
+  scenario.state.run = { id: runId, sessionId: SESSION_A.threadRef, visible: true };
+  const currentSource = source("run-ownership-event", "continue the run");
+  const operation = steerOperation(currentSource, runId);
+  const checked = await scenario.core.check(currentSource, operation);
+
+  scenario.state.run.sessionId = SESSION_B.threadRef;
+  await rejectsCode(scenario.core.execute(currentSource, checked), "run_not_authorized");
+  assert.equal(scenario.state.calls.runStoreReads, 4);
+  assert.equal(scenario.state.calls.businessStoreWrites, 0);
+  assert.equal(scenario.state.calls.turnRequests.length, 0);
 });
 
 test("approval resolution follows its original resource and actor binding after selection changes", async () => {
