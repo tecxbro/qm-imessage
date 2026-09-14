@@ -420,7 +420,7 @@ export class PhotonCliInstallationService {
       installation: { installationId: this.#installationId },
       status: { state: "not-started", installationId: this.#installationId },
       ownerRevision: revision,
-      version: 0,
+      version: 1,
     };
     if (await this.#store.create(initial)) return initial;
     const raced = await this.#store.read(this.#installationId);
