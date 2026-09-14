@@ -1,4 +1,9 @@
-import type { ChatSessionBindingStorePort, MessageBindingStorePort } from "../../../photon/src/ports.ts";
+import type {
+  ChatSessionBinding,
+  ChatSessionBindingStorePort,
+  MessageBindingStorePort,
+} from "../../../photon/src/ports.ts";
+import type { ConversationReference } from "../photon-contract.ts";
 import { PHOTON_STATE_SCHEMA } from "../photon-state-schema.ts";
 
 import type { PhotonStateDatabase } from "./db.ts";
@@ -16,12 +21,48 @@ import {
 } from "./shared.ts";
 
 export interface PhotonBindingStores {
-  chatSessions: ChatSessionBindingStorePort;
+  chatSessions: ChatSessionBindingStorePort & {
+    readSelection(
+      conversation: ConversationReference,
+    ): Promise<{ binding: ChatSessionBinding; version: number } | undefined>;
+    compareAndSetSelection(
+      conversation: ConversationReference,
+      expectedVersion: number,
+      next: ChatSessionBinding,
+    ): Promise<{ binding: ChatSessionBinding; version: number } | undefined>;
+  };
   messages: MessageBindingStorePort;
 }
 
+type ChatSessionSelectionStore = PhotonBindingStores["chatSessions"];
+
+type SelectionRow = RecordRow & { binding_version: number | string };
+
+function selectionVersion(row: SelectionRow): number {
+  const version = Number(row.binding_version);
+  if (!Number.isSafeInteger(version) || version < 1) throw new TypeError("invalid chat selection version");
+  return version;
+}
+
+function sameConversationAuthority(left: ConversationReference, right: ConversationReference): boolean {
+  return (
+    left.provider === right.provider &&
+    left.installationId === right.installationId &&
+    left.projectId === right.projectId &&
+    left.lineId === right.lineId &&
+    left.conversationId === right.conversationId
+  );
+}
+
+function selected(row: SelectionRow | undefined, conversation: ConversationReference) {
+  if (row === undefined) return undefined;
+  const binding = decoded("chat-session-binding", row)!;
+  if (!sameConversationAuthority(binding.conversation, conversation)) return undefined;
+  return { binding, version: selectionVersion(row) };
+}
+
 export function createPhotonBindingStores(database: PhotonStateDatabase): PhotonBindingStores {
-  const chatSessions: ChatSessionBindingStorePort = {
+  const chatSessions: ChatSessionSelectionStore = {
     async bind(binding) {
       const serialized = encoded("chat-session-binding", binding);
       return database.transaction(async (transaction) => {
@@ -51,6 +92,46 @@ export function createPhotonBindingStores(database: PhotonStateDatabase): Photon
           WHERE provider = $1 AND installation_id = $2 AND line_id = $3 AND conversation_id = $4`,
         conversationValues(conversation),
       );
+    },
+    async readSelection(conversation) {
+      const result = await database.query<SelectionRow>(
+        `SELECT record, record_version, binding_version
+           FROM ${PHOTON_STATE_SCHEMA}.chat_session_bindings
+          WHERE provider = $1 AND installation_id = $2 AND line_id = $3 AND conversation_id = $4`,
+        conversationValues(conversation),
+      );
+      return selected(result.rows[0], conversation);
+    },
+    async compareAndSetSelection(conversation, expectedVersion, next) {
+      if (
+        !Number.isSafeInteger(expectedVersion) ||
+        expectedVersion < 1 ||
+        expectedVersion >= Number.MAX_SAFE_INTEGER ||
+        !sameJson(conversation, next.conversation)
+      )
+        return undefined;
+      const serialized = encoded("chat-session-binding", next);
+      return database.transaction(async (transaction) => {
+        const currentResult = await transaction.query<SelectionRow>(
+          `SELECT record, record_version, binding_version
+             FROM ${PHOTON_STATE_SCHEMA}.chat_session_bindings
+            WHERE provider = $1 AND installation_id = $2 AND line_id = $3 AND conversation_id = $4
+            FOR UPDATE`,
+          conversationValues(conversation),
+        );
+        const current = selected(currentResult.rows[0], conversation);
+        if (current === undefined || current.version !== expectedVersion) return undefined;
+        const updated = await transaction.query<SelectionRow>(
+          `UPDATE ${PHOTON_STATE_SCHEMA}.chat_session_bindings
+              SET record = $5::jsonb, binding_version = binding_version + 1
+            WHERE provider = $1 AND installation_id = $2 AND line_id = $3 AND conversation_id = $4
+              AND binding_version = $6
+          RETURNING record, record_version, binding_version`,
+          [...conversationValues(conversation), serialized, expectedVersion],
+        );
+        if (resultCount(updated) !== 1) throw new Error("chat selection update failed");
+        return selected(updated.rows[0], conversation);
+      });
     },
   };
 
