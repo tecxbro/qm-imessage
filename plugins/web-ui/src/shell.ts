@@ -129,7 +129,7 @@ function signOutFromMenu(): void {
 
 let authMode: AuthMode = "portal";
 let shellMounted = false;
-let bootEpoch = 0;
+let photonBootEpoch = 0;
 
 setSigninRequiredHandler((detail) => {
   authMode = detail.mode ?? authMode;
@@ -160,10 +160,9 @@ function clearShellRefs(): void {
   footerEl = null;
 }
 
-function cancelBoot(): void {
-  bootEpoch++;
+function cancelPhotonBoot(): void {
+  photonBootEpoch++;
   disposePhotonEntry();
-  clearShellRefs();
 }
 
 function photonPath(): string {
@@ -269,7 +268,7 @@ const ICON = {
 
 export async function signOut(): Promise<void> {
   const portal = authMode === "portal";
-  cancelBoot();
+  cancelPhotonBoot();
   if (!portal) {
     try {
       await api("/signout", { method: "POST" });
@@ -486,7 +485,7 @@ export type AuthGate =
   | { kind: "dev"; value?: string; error?: string; pending?: boolean };
 
 export function renderAuthGate(gate: AuthGate): void {
-  cancelBoot();
+  cancelPhotonBoot();
   shellMounted = false;
   const body = (() => {
     switch (gate.kind) {
@@ -999,18 +998,19 @@ function openAppEditChat(slug: string): void {
 }
 
 export async function bootSafely(): Promise<void> {
-  const epoch = ++bootEpoch;
+  const photonEntry = isPhotonEntry(location.pathname);
+  const photonEpoch = photonEntry ? photonBootEpoch + 1 : photonBootEpoch;
   try {
-    await boot(epoch);
+    await boot();
   } catch (e) {
-    if (epoch !== bootEpoch) return;
+    if (photonEntry && photonEpoch !== photonBootEpoch) return;
     if (shellMounted) swallow("web-ui: boot", e);
     else renderAuthGate({ kind: "unreachable" });
   }
 }
 
-export async function boot(epoch = ++bootEpoch): Promise<void> {
-  if (epoch !== bootEpoch) return;
+export async function boot(): Promise<void> {
+  const photonEpoch = ++photonBootEpoch;
   disposePhotonEntry();
   const params = new URLSearchParams(location.search);
   const photonEntry = isPhotonEntry(location.pathname);
@@ -1030,31 +1030,31 @@ export async function boot(epoch = ++bootEpoch): Promise<void> {
   try {
     r = await webFetch(withBase("/me"));
   } catch {
-    if (epoch !== bootEpoch) return;
+    if (photonEntry && photonEpoch !== photonBootEpoch) return;
     renderAuthGate({ kind: "unreachable" });
     return;
   }
-  if (epoch !== bootEpoch) return;
+  if (photonEntry && photonEpoch !== photonBootEpoch) return;
   if (r.status === 401) {
     const body = (await r.json().catch(() => ({}))) as SigninRequired;
-    if (epoch !== bootEpoch) return;
+    if (photonEntry && photonEpoch !== photonBootEpoch) return;
     authMode = body.mode ?? "portal";
     renderAuthGate(gateFor(authMode, body.reason));
     return;
   }
   if (!r.ok) {
-    if (epoch !== bootEpoch) return;
+    if (photonEntry && photonEpoch !== photonBootEpoch) return;
     renderAuthGate({ kind: "unreachable" });
     return;
   }
   resetKeychainState();
   const me = (await r.json()) as Me;
-  if (epoch !== bootEpoch) return;
+  if (photonEntry && photonEpoch !== photonBootEpoch) return;
   appState.me = me;
   authMode = appState.me.mode ?? "portal";
   clearPortalAttempt();
   if (appState.me.individualModelAuth && !appState.me.modelAuthConnected) {
-    cancelBoot();
+    cancelPhotonBoot();
     shellMounted = false;
     renderModelConnectGate();
     return;
@@ -1071,16 +1071,14 @@ export async function boot(epoch = ++bootEpoch): Promise<void> {
       renderPhotonUnavailable();
       return;
     }
-    if (epoch !== bootEpoch) return;
+    if (photonEpoch !== photonBootEpoch) return;
     mountPhotonSurface(request, appState.me.user);
     return;
   }
   const personalScope = `personal:${appState.me.user}`;
   const prefetchedConfig = await runtimeConfigFetch!;
-  if (epoch !== bootEpoch) return;
   const runtimeConfig =
     prefetchedConfig?.scopeId === personalScope ? prefetchedConfig : await fetchRuntimeConfig(personalScope);
-  if (epoch !== bootEpoch) return;
   if (runtimeConfig) {
     applyRuntimeOptions(
       personalScope,
@@ -1099,7 +1097,6 @@ export async function boot(epoch = ++bootEpoch): Promise<void> {
   void refreshInbox({ silent: true });
   loadPersistedSplit();
   await adoptRemoteSplit(remoteSplitFetch!);
-  if (epoch !== bootEpoch) return;
 
   const connectedProvider = params.get("status") === "connected" ? params.get("connector") : null;
   if (connectedProvider) markConnectorConnected(connectedProvider);
