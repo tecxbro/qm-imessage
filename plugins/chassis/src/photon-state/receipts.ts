@@ -1,9 +1,9 @@
 import type {
   ContiguousCheckpoint,
   EventReceipt,
-  EventReceiptStorePort,
   ProviderEventKey,
   ProviderLineScope,
+  RecoverableEventReceiptStorePort,
   ReceiptClaim,
 } from "../../../photon/src/ports.ts";
 import { canonicalSequence } from "../photon-state-records.ts";
@@ -14,6 +14,7 @@ import {
   PHOTON_STATE_RECORD_VERSION,
   advisoryKey,
   canonicalTimestamp,
+  decoded,
   encoded,
   eventValues,
   nonempty,
@@ -21,7 +22,20 @@ import {
   sameJson,
   scopeValues,
   selectRecord,
+  type RecordRow,
 } from "./shared.ts";
+
+type ReceiptRecoveryRow = RecordRow & {
+  captured_at: Date | string;
+  claim_expires_at: Date | string | null;
+  claim_fence: number | string;
+  event_id: string;
+  installation_id: string;
+  line_id: string;
+  provider: string;
+  sequence: number | string | null;
+  state: string;
+};
 
 function activeClaim(current: ReceiptClaim | undefined, expected: ReceiptClaim, now: string): boolean {
   const nowMilliseconds = canonicalTimestamp(now, "now");
@@ -38,7 +52,7 @@ function receiptScope(key: ProviderEventKey & ProviderLineScope): ProviderLineSc
   return { provider: key.provider, installationId: key.installationId, lineId: key.lineId };
 }
 
-export function createPhotonReceiptStore(database: PhotonStateDatabase): EventReceiptStorePort {
+export function createPhotonReceiptStore(database: PhotonStateDatabase): RecoverableEventReceiptStorePort {
   async function finishSequenced(
     key: ProviderEventKey & ProviderLineScope,
     expectedVersion: number,
@@ -139,7 +153,7 @@ export function createPhotonReceiptStore(database: PhotonStateDatabase): EventRe
     });
   }
 
-  const receipts: EventReceiptStorePort = {
+  const receipts: RecoverableEventReceiptStorePort = {
     async capture(receipt) {
       const serialized = encoded("event-receipt", receipt as EventReceipt);
       return database.transaction(async (transaction) => {
@@ -285,6 +299,80 @@ export function createPhotonReceiptStore(database: PhotonStateDatabase): EventRe
           WHERE provider = $1 AND installation_id = $2 AND line_id = $3`,
         scopeValues(scope),
       );
+    },
+    async discoverRecoverable(query) {
+      if (query.provider !== "spectrum-imessage" && query.provider !== "advanced-imessage")
+        throw new TypeError("provider is unsupported");
+      nonempty(query.installationId, "installationId");
+      if (query.lineId !== undefined) nonempty(query.lineId, "lineId");
+      canonicalTimestamp(query.now, "now");
+      if (!Number.isSafeInteger(query.limit) || query.limit < 1 || query.limit > 128)
+        throw new TypeError("limit must be an integer from 1 through 128");
+      if (query.after !== undefined) {
+        canonicalTimestamp(query.after.capturedAt, "after.capturedAt");
+        nonempty(query.after.eventId, "after.eventId");
+      }
+      const result = await database.query<ReceiptRecoveryRow>(
+        `SELECT record, record_version, provider, installation_id, line_id, event_id,
+                sequence, state, claim_fence, claim_expires_at, captured_at
+           FROM ${PHOTON_STATE_SCHEMA}.event_receipts
+          WHERE provider = $1
+            AND installation_id = $2
+            AND line_id = $3
+            AND (
+              state = 'captured'
+              OR (state = 'processing' AND claim_expires_at IS NOT NULL AND claim_expires_at <= $4::timestamptz)
+            )
+            AND (
+              $5::timestamptz IS NULL
+              OR (captured_at, event_id) > ($5::timestamptz, $6::text)
+            )
+          ORDER BY captured_at, event_id
+          LIMIT $7`,
+        [
+          query.provider,
+          query.installationId,
+          query.lineId ?? "",
+          query.now,
+          query.after?.capturedAt ?? null,
+          query.after?.eventId ?? null,
+          query.limit + 1,
+        ],
+      );
+      const discovered = result.rows.slice(0, query.limit).map((row) => {
+        const receipt = decoded("event-receipt", row);
+        if (receipt === undefined) throw new Error("recoverable receipt row is missing");
+        const capturedAt = row.captured_at instanceof Date ? row.captured_at.toISOString() : row.captured_at;
+        const claimExpiresAt =
+          row.claim_expires_at instanceof Date ? row.claim_expires_at.toISOString() : row.claim_expires_at;
+        canonicalTimestamp(capturedAt, "capturedAt");
+        if (
+          receipt.key.provider !== row.provider ||
+          receipt.key.installationId !== row.installation_id ||
+          (receipt.key.lineId ?? "") !== row.line_id ||
+          receipt.key.eventId !== row.event_id ||
+          receipt.sequence !== (row.sequence === null ? undefined : String(row.sequence)) ||
+          receipt.state !== row.state ||
+          receipt.capturedAt !== capturedAt
+        )
+          throw new Error("recoverable receipt columns disagree with record");
+        if (
+          (receipt.state === "processing" &&
+            (claimExpiresAt === null ||
+              receipt.claim?.leaseExpiresAt !== claimExpiresAt ||
+              receipt.claim.fence !== Number(row.claim_fence))) ||
+          (receipt.state === "captured" && (claimExpiresAt !== null || Number(row.claim_fence) !== 0))
+        )
+          throw new Error("recoverable receipt claim columns disagree with record");
+        return receipt;
+      });
+      const last = discovered.at(-1);
+      return {
+        receipts: discovered,
+        ...(result.rows.length > query.limit && last
+          ? { next: { capturedAt: last.capturedAt, eventId: last.key.eventId } }
+          : {}),
+      };
     },
     advanceContiguousCheckpoint(key, expectedVersion, nextSequence, claim, now) {
       return finishSequenced(key, expectedVersion, nextSequence, claim, now, "checkpointed");
