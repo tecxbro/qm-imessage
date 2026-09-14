@@ -2,83 +2,28 @@ import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 import pg from "pg";
 
-import { createPostgresPhotonStateStores, type PhotonStateStores } from "../plugins/chassis/src/photon-state.ts";
-import { PHOTON_STATE_MIGRATION, PHOTON_STATE_SCHEMA } from "../plugins/chassis/src/photon-state-schema.ts";
+import { createPhotonDeliveryStore } from "../plugins/chassis/src/photon-state/deliveries.ts";
+import {
+  PHOTON_STATE_MIGRATION,
+  PHOTON_STATE_MIGRATIONS,
+  PHOTON_STATE_REPAIR_MIGRATION,
+  PHOTON_STATE_SCHEMA,
+} from "../plugins/chassis/src/photon-state-schema.ts";
 import type {
   MessagePartReference,
   PhotonOperationOutcome,
   PhotonPresentationOperation,
 } from "../plugins/chassis/src/photon-contract.ts";
-import type { DeliveryOperationRecord } from "../plugins/photon/src/ports.ts";
+import type {
+  DeliveryDispatchClaim,
+  DeliveryRecoveryQuery,
+  RecoverableDeliveryOperationRecord,
+  RecoverableDeliveryOperationStorePort,
+} from "../plugins/photon/src/ports.ts";
 import { createPhotonStateDatabase, type PhotonStatePool } from "../plugins/photon/src/state.ts";
 import { chats, operationReference, textOperation } from "../plugins/photon/test/fixtures.ts";
 import { applyPgMigrations, definePgMigration, PG_MIGRATIONS_TABLE } from "../src/persistence/pg-pool.ts";
 import { cp1PostgresSkip, createCp1PostgresHarness, type Cp1PostgresHarness } from "./helpers/cp1-postgres.ts";
-
-interface DeliveryDispatchClaim {
-  ownerId: string;
-  fence: number;
-  leaseExpiresAt: string;
-}
-
-interface DeliveryRecoveryCursor {
-  updatedAt: string;
-  conversationId: string;
-  idempotencyKey: string;
-}
-
-interface DeliveryRecoveryPage {
-  deliveries: readonly DeliveryOperationRecord[];
-  next?: DeliveryRecoveryCursor;
-}
-
-interface DeliveryRecoveryQuery {
-  provider: string;
-  installationId: string;
-  lineId: string;
-  now: string;
-  limit: number;
-  after?: DeliveryRecoveryCursor;
-}
-
-interface DeliveryStore {
-  reserve(operation: PhotonPresentationOperation): Promise<"reserved" | "duplicate" | "conflict">;
-  retry(operation: PhotonPresentationOperation, expectedVersion: number): Promise<DeliveryOperationRecord | undefined>;
-  reconcile(evidence: unknown, expectedVersion: number): Promise<boolean>;
-  read(operation: PhotonPresentationOperation): Promise<DeliveryOperationRecord | undefined>;
-  acquireDispatch(
-    operation: PhotonPresentationOperation,
-    expectedVersion: number,
-    ownerId: string,
-    now: string,
-    leaseExpiresAt: string,
-  ): Promise<DeliveryOperationRecord | undefined>;
-  renewDispatch(
-    operation: PhotonPresentationOperation,
-    claim: DeliveryDispatchClaim,
-    now: string,
-    leaseExpiresAt: string,
-  ): Promise<DeliveryOperationRecord | undefined>;
-  expireDispatch(
-    operation: PhotonPresentationOperation,
-    claim: DeliveryDispatchClaim,
-    now: string,
-  ): Promise<DeliveryOperationRecord | undefined>;
-  recordConfirmedPart(
-    operation: PhotonPresentationOperation,
-    claim: DeliveryDispatchClaim,
-    logicalPartIndex: number,
-    part: MessagePartReference,
-    now: string,
-  ): Promise<DeliveryOperationRecord | undefined>;
-  complete(
-    operation: PhotonPresentationOperation,
-    claim: DeliveryDispatchClaim,
-    outcome: PhotonOperationOutcome,
-    now: string,
-  ): Promise<boolean>;
-  discoverRecoverable(query: DeliveryRecoveryQuery): Promise<DeliveryRecoveryPage>;
-}
 
 const databaseUrl = process.env.CP1_POSTGRES_ADMIN_URL;
 const skip = cp1PostgresSkip(
@@ -86,28 +31,12 @@ const skip = cp1PostgresSkip(
   databaseUrl,
   process.env.CP1_REQUIRE_POSTGRES === "1",
 );
-const leaseMigration = definePgMigration("photon/state/0002", [
-  `ALTER TABLE ${PHOTON_STATE_SCHEMA}.delivery_operations
-     ADD COLUMN IF NOT EXISTS dispatch_owner_id TEXT`,
-  `ALTER TABLE ${PHOTON_STATE_SCHEMA}.delivery_operations
-     ADD COLUMN IF NOT EXISTS dispatch_lease_expires_at TIMESTAMPTZ`,
-  `CREATE INDEX IF NOT EXISTS delivery_operations_dispatch_lease_expiry
-     ON ${PHOTON_STATE_SCHEMA}.delivery_operations(
-       provider, installation_id, line_id, dispatch_lease_expires_at, updated_at, conversation_id, idempotency_key
-     )
-     WHERE state = 'dispatched' AND dispatch_lease_expires_at IS NOT NULL`,
-]);
-
 let harness: Cp1PostgresHarness | undefined;
 let admin: pg.Pool | undefined;
 const extraPools: pg.Pool[] = [];
 
 function database(pool: pg.Pool) {
   return createPhotonStateDatabase(pool as unknown as PhotonStatePool);
-}
-
-function deliveryStore(value: PhotonStateStores): DeliveryStore {
-  return value.deliveries as unknown as DeliveryStore;
 }
 
 function openPool(): pg.Pool {
@@ -188,11 +117,11 @@ async function setUpdatedAt(operation: PhotonPresentationOperation, updatedAt: s
 }
 
 async function seedExpired(
-  store: DeliveryStore,
+  store: RecoverableDeliveryOperationStorePort,
   operation: PhotonPresentationOperation,
   ownerId: string,
   updatedAt: string,
-): Promise<{ record: DeliveryOperationRecord; claim: DeliveryDispatchClaim }> {
+): Promise<{ record: RecoverableDeliveryOperationRecord; claim: DeliveryDispatchClaim }> {
   assert.equal(await store.reserve(operation), "reserved");
   const record = await store.acquireDispatch(
     operation,
@@ -214,10 +143,10 @@ before(async () => {
   harness = await createCp1PostgresHarness(databaseUrl);
   admin = harness.pool;
   await harness.withClusterLock(() =>
-    applyPgMigrations(admin!, [
-      definePgMigration(PHOTON_STATE_MIGRATION.id, PHOTON_STATE_MIGRATION.statements),
-      leaseMigration,
-    ]),
+    applyPgMigrations(
+      admin!,
+      PHOTON_STATE_MIGRATIONS.map((migration) => definePgMigration(migration.id, migration.statements)),
+    ),
   );
 });
 
@@ -227,18 +156,22 @@ after(async () => {
 });
 
 test("lease migration is appended after immutable state migration and replays safely", { skip }, async () => {
-  await applyPgMigrations(admin!, [
-    definePgMigration(PHOTON_STATE_MIGRATION.id, PHOTON_STATE_MIGRATION.statements),
-    leaseMigration,
-  ]);
+  await applyPgMigrations(
+    admin!,
+    PHOTON_STATE_MIGRATIONS.map((migration) => definePgMigration(migration.id, migration.statements)),
+  );
   const migrations = await admin!.query<{ id: string; checksum: string }>(
     `SELECT id, checksum FROM ${PG_MIGRATIONS_TABLE} WHERE id = ANY($1::text[]) ORDER BY id`,
-    [[PHOTON_STATE_MIGRATION.id, leaseMigration.id]],
+    [[PHOTON_STATE_MIGRATION.id, PHOTON_STATE_REPAIR_MIGRATION.id]],
   );
   assert.deepEqual(
     migrations.rows,
     [
-      { id: leaseMigration.id, checksum: leaseMigration.checksum },
+      {
+        id: PHOTON_STATE_REPAIR_MIGRATION.id,
+        checksum: definePgMigration(PHOTON_STATE_REPAIR_MIGRATION.id, PHOTON_STATE_REPAIR_MIGRATION.statements)
+          .checksum,
+      },
       {
         id: PHOTON_STATE_MIGRATION.id,
         checksum: definePgMigration(PHOTON_STATE_MIGRATION.id, PHOTON_STATE_MIGRATION.statements).checksum,
@@ -261,11 +194,11 @@ test("lease migration is appended after immutable state migration and replays sa
     `SELECT indexdef
        FROM pg_indexes
       WHERE schemaname = $1 AND tablename = 'delivery_operations'
-        AND indexname = 'delivery_operations_dispatch_lease_expiry'`,
+        AND indexname = 'delivery_operations_recovery'`,
     [PHOTON_STATE_SCHEMA],
   );
   assert.equal(index.rows.length, 1);
-  assert.match(index.rows[0]!.indexdef, /dispatch_lease_expires_at/u);
+  assert.match(index.rows[0]!.indexdef, /updated_at/u);
 });
 
 test("competing dispatchers acquire one durable fenced lease", { skip }, async () => {
@@ -277,8 +210,8 @@ test("competing dispatchers acquire one durable fenced lease", { skip }, async (
   const firstPool = openPool();
   const secondPool = openPool();
   try {
-    const first = deliveryStore(createPostgresPhotonStateStores(database(firstPool)));
-    const second = deliveryStore(createPostgresPhotonStateStores(database(secondPool)));
+    const first = createPhotonDeliveryStore(database(firstPool));
+    const second = createPhotonDeliveryStore(database(secondPool));
     assert.equal(await first.reserve(operation), "reserved");
     const [firstClaimed, secondClaimed] = await Promise.all([
       first.acquireDispatch(operation, 1, "worker-a", "2026-09-14T12:00:00.000Z", "2026-09-14T12:05:00.000Z"),
@@ -291,6 +224,11 @@ test("competing dispatchers acquire one durable fenced lease", { skip }, async (
     assert.equal(winner.dispatchFence, 1);
     assert.equal(winner.version, 2);
     const ownerId = firstClaimed === undefined ? "worker-b" : "worker-a";
+    assert.deepEqual(winner.dispatchClaim, {
+      ownerId,
+      fence: 1,
+      leaseExpiresAt: "2026-09-14T12:05:00.000Z",
+    });
     const row = await admin!.query<{
       dispatch_owner_id: string;
       dispatch_lease_expires_at: Date | string;
@@ -336,6 +274,16 @@ test("competing dispatchers acquire one durable fenced lease", { skip }, async (
       ),
       undefined,
     );
+    assert.equal(
+      await (firstClaimed === undefined ? first : second).acquireDispatch(
+        { ...operation, attemptId: "attempt-r04-acquire-stale" },
+        2,
+        "worker-c",
+        "2026-09-14T12:00:00.000Z",
+        "2026-09-14T12:06:00.000Z",
+      ),
+      undefined,
+    );
     assert.equal((await first.read(operation))?.version, 2);
     const isolated = textOperation(1, {
       operationId: "operation-r04-acquire-isolated",
@@ -366,8 +314,8 @@ test("renewal and expiry races reject stale claims and make completion fence-saf
   const firstPool = openPool();
   const secondPool = openPool();
   try {
-    const first = deliveryStore(createPostgresPhotonStateStores(database(firstPool)));
-    const second = deliveryStore(createPostgresPhotonStateStores(database(secondPool)));
+    const first = createPhotonDeliveryStore(database(firstPool));
+    const second = createPhotonDeliveryStore(database(secondPool));
     assert.equal(await first.reserve(operation), "reserved");
     const acquired = await first.acquireDispatch(
       operation,
@@ -460,6 +408,30 @@ test("renewal and expiry races reject stale claims and make completion fence-saf
       fence: expiredRecord.dispatchFence,
       leaseExpiresAt: "2026-09-14T12:01:00.000Z",
     };
+    assert.equal(
+      await second.expireDispatch(
+        expiredOperation,
+        { ...expiredClaim, ownerId: "worker-other" },
+        "2026-09-14T12:02:00.000Z",
+      ),
+      undefined,
+    );
+    assert.equal(
+      await second.expireDispatch(
+        expiredOperation,
+        { ...expiredClaim, fence: expiredClaim.fence + 1 },
+        "2026-09-14T12:02:00.000Z",
+      ),
+      undefined,
+    );
+    assert.equal(
+      await second.expireDispatch(
+        expiredOperation,
+        { ...expiredClaim, leaseExpiresAt: "2026-09-14T12:01:00.001Z" },
+        "2026-09-14T12:02:00.000Z",
+      ),
+      undefined,
+    );
     const expired = await second.expireDispatch(expiredOperation, expiredClaim, "2026-09-14T12:02:00.000Z");
     assert.ok(expired);
     assert.equal(expired.state, "ambiguous");
@@ -501,7 +473,7 @@ test("completion requires the exact live claim, operation attempt, and payload",
     attemptId: "attempt-r04-complete",
     idempotencyKey: "logical-r04-complete",
   });
-  const store = deliveryStore(createPostgresPhotonStateStores(database(admin!)));
+  const store = createPhotonDeliveryStore(database(admin!));
   assert.equal(await store.reserve(operation), "reserved");
   const acquired = await store.acquireDispatch(
     operation,
@@ -525,6 +497,19 @@ test("completion requires the exact live claim, operation attempt, and payload",
   assert.equal(await store.complete(operation, claim, forgedOutcome, "2026-09-14T13:01:00.000Z"), false);
   assert.equal(
     await store.complete(operation, { ...claim, ownerId: "worker-stale" }, outcome, "2026-09-14T13:01:00.000Z"),
+    false,
+  );
+  assert.equal(
+    await store.complete(operation, { ...claim, fence: claim.fence + 1 }, outcome, "2026-09-14T13:01:00.000Z"),
+    false,
+  );
+  assert.equal(
+    await store.complete(
+      operation,
+      { ...claim, leaseExpiresAt: "2026-09-14T13:05:00.001Z" },
+      outcome,
+      "2026-09-14T13:01:00.000Z",
+    ),
     false,
   );
   assert.equal(
@@ -554,7 +539,7 @@ test("completion requires the exact live claim, operation attempt, and payload",
 
 test("expiry preserves committed multipart progress and makes unresolved parts ambiguous", { skip }, async () => {
   const operation = multipartOperation("r04-expiry-progress");
-  const store = deliveryStore(createPostgresPhotonStateStores(database(admin!)));
+  const store = createPhotonDeliveryStore(database(admin!));
   assert.equal(await store.reserve(operation), "reserved");
   const acquired = await store.acquireDispatch(
     operation,
@@ -591,8 +576,8 @@ test(
     const writerPool = openPool();
     const replacementPool = openPool();
     try {
-      const writer = deliveryStore(createPostgresPhotonStateStores(database(writerPool)));
-      const replacement = deliveryStore(createPostgresPhotonStateStores(database(replacementPool)));
+      const writer = createPhotonDeliveryStore(database(writerPool));
+      const replacement = createPhotonDeliveryStore(database(replacementPool));
       assert.equal(await writer.reserve(operation), "reserved");
       const acquired = await writer.acquireDispatch(
         operation,
@@ -608,6 +593,36 @@ test(
         leaseExpiresAt: "2026-09-14T12:20:00.000Z",
       };
       const retained = providerPart(operation, 1, "provider-progress-middle");
+      assert.equal(
+        await writer.recordConfirmedPart(
+          operation,
+          { ...claim, ownerId: "worker-progress-other" },
+          1,
+          retained,
+          "2026-09-14T12:10:30.000Z",
+        ),
+        undefined,
+      );
+      assert.equal(
+        await writer.recordConfirmedPart(
+          operation,
+          { ...claim, fence: claim.fence + 1 },
+          1,
+          retained,
+          "2026-09-14T12:10:30.000Z",
+        ),
+        undefined,
+      );
+      assert.equal(
+        await writer.recordConfirmedPart(
+          operation,
+          { ...claim, leaseExpiresAt: "2026-09-14T12:20:00.001Z" },
+          1,
+          retained,
+          "2026-09-14T12:10:30.000Z",
+        ),
+        undefined,
+      );
       const progress = await writer.recordConfirmedPart(operation, claim, 1, retained, "2026-09-14T12:10:30.000Z");
       assert.ok(progress);
       assert.equal(progress.version, acquired.version + 1);
@@ -700,8 +715,8 @@ test(
     const writerPool = openPool();
     const readerPool = openPool();
     try {
-      const writer = deliveryStore(createPostgresPhotonStateStores(database(writerPool)));
-      const reader = deliveryStore(createPostgresPhotonStateStores(database(readerPool)));
+      const writer = createPhotonDeliveryStore(database(writerPool));
+      const reader = createPhotonDeliveryStore(database(readerPool));
       assert.equal(await writer.reserve(operation), "reserved");
       const acquired = await writer.acquireDispatch(
         operation,
@@ -765,6 +780,30 @@ test(
         values(corruptParentOperation),
       );
       await assert.rejects(() => reader.read(corruptParentOperation), /delivery operation parent columns disagree/u);
+
+      const corruptClaimOperation = textOperation(0, {
+        operationId: "operation-r04-claim-corrupt",
+        attemptId: "attempt-r04-claim-corrupt",
+        idempotencyKey: "logical-r04-claim-corrupt",
+      });
+      assert.equal(await writer.reserve(corruptClaimOperation), "reserved");
+      assert.ok(
+        await writer.acquireDispatch(
+          corruptClaimOperation,
+          1,
+          "worker-claim-corrupt",
+          "2026-09-14T12:30:00.000Z",
+          "2026-09-14T12:40:00.000Z",
+        ),
+      );
+      await admin!.query(
+        `UPDATE ${PHOTON_STATE_SCHEMA}.delivery_operations
+            SET dispatch_owner_id = ''
+          WHERE provider = $1 AND installation_id = $2 AND line_id = $3
+            AND conversation_id = $4 AND idempotency_key = $5`,
+        values(corruptClaimOperation),
+      );
+      await assert.rejects(() => reader.read(corruptClaimOperation), /dispatchOwnerId must be a non-empty string/u);
     } finally {
       await closePool(writerPool);
       await closePool(readerPool);
@@ -783,7 +822,7 @@ test(
     });
     const pool = openPool();
     try {
-      const store = deliveryStore(createPostgresPhotonStateStores(database(pool)));
+      const store = createPhotonDeliveryStore(database(pool));
       assert.equal(await store.reserve(operation), "reserved");
       await admin!.query(
         `UPDATE ${PHOTON_STATE_SCHEMA}.delivery_operations
@@ -839,8 +878,8 @@ test("recovery discovery is bounded, stable, tenant-scoped, and restart-safe", {
   const pool = openPool();
   const replacementPool = openPool();
   try {
-    const store = deliveryStore(createPostgresPhotonStateStores(database(pool)));
-    const replacement = deliveryStore(createPostgresPhotonStateStores(database(replacementPool)));
+    const store = createPhotonDeliveryStore(database(pool));
+    const replacement = createPhotonDeliveryStore(database(replacementPool));
     const firstOperation = textOperation(0, {
       operationId: "operation-r04-discovery-1",
       attemptId: "attempt-r04-discovery-1",
@@ -927,7 +966,7 @@ test("recovery pagination preserves ordering for database timestamps within one 
     idempotencyKey: "logical-r04-cursor-b",
     conversation,
   });
-  const store = deliveryStore(createPostgresPhotonStateStores(database(admin!)));
+  const store = createPhotonDeliveryStore(database(admin!));
   await seedExpired(store, first, "worker-r04-cursor-a", "2026-09-14T11:00:00.123456Z");
   await seedExpired(store, second, "worker-r04-cursor-b", "2026-09-14T11:00:00.123789Z");
   const query: DeliveryRecoveryQuery = {

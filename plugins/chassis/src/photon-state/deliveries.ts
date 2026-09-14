@@ -1,4 +1,10 @@
-import type { DeliveryOperationRecord, DeliveryOperationStorePort } from "../../../photon/src/ports.ts";
+import type {
+  DeliveryDispatchClaim,
+  DeliveryOperationRecord,
+  DeliveryOperationStorePort,
+  RecoverableDeliveryOperationRecord,
+  RecoverableDeliveryOperationStorePort,
+} from "../../../photon/src/ports.ts";
 import type { MessagePartReference, PhotonOperationOutcome, PhotonPresentationOperation } from "../photon-contract.ts";
 import { parsePhotonOperationOutcome, parsePhotonReconciliationEvidence } from "../photon-contract.ts";
 import {
@@ -24,78 +30,7 @@ import {
   sameJson,
 } from "./shared.ts";
 
-export interface DeliveryDispatchClaim {
-  ownerId: string;
-  fence: number;
-  leaseExpiresAt: string;
-}
-
-export interface DeliveryRecoveryCursor {
-  updatedAt: string;
-  conversationId: string;
-  idempotencyKey: string;
-}
-
-export interface DeliveryRecoveryQuery {
-  provider: PhotonPresentationOperation["conversation"]["provider"];
-  installationId: string;
-  lineId: string;
-  now: string;
-  limit: number;
-  after?: DeliveryRecoveryCursor;
-}
-
-export interface DeliveryRecoveryPage {
-  deliveries: readonly R04DeliveryOperationRecord[];
-  next?: DeliveryRecoveryCursor;
-}
-
-export interface R04DeliveryOperationRecord extends DeliveryOperationRecord {
-  dispatchClaim?: DeliveryDispatchClaim;
-}
-
-export interface R04DeliveryOperationStorePort extends Omit<
-  DeliveryOperationStorePort,
-  "complete" | "markDispatched" | "read"
-> {
-  acquireDispatch(
-    operation: PhotonPresentationOperation,
-    expectedVersion: number,
-    ownerId: string,
-    now: string,
-    leaseExpiresAt: string,
-  ): Promise<R04DeliveryOperationRecord | undefined>;
-  renewDispatch(
-    operation: PhotonPresentationOperation,
-    claim: DeliveryDispatchClaim,
-    now: string,
-    leaseExpiresAt: string,
-  ): Promise<R04DeliveryOperationRecord | undefined>;
-  expireDispatch(
-    operation: PhotonPresentationOperation,
-    claim: DeliveryDispatchClaim,
-    now: string,
-  ): Promise<R04DeliveryOperationRecord | undefined>;
-  recordConfirmedPart(
-    operation: PhotonPresentationOperation,
-    claim: DeliveryDispatchClaim,
-    logicalPartIndex: number,
-    part: MessagePartReference,
-    now: string,
-  ): Promise<R04DeliveryOperationRecord | undefined>;
-  complete(
-    operation: PhotonPresentationOperation,
-    claim: DeliveryDispatchClaim | number,
-    outcome: PhotonOperationOutcome,
-    now?: string,
-  ): Promise<boolean>;
-  discoverRecoverable(query: DeliveryRecoveryQuery): Promise<DeliveryRecoveryPage>;
-  markDispatched(
-    operation: PhotonPresentationOperation,
-    expectedVersion: number,
-  ): Promise<R04DeliveryOperationRecord | undefined>;
-  read(operation: PhotonPresentationOperation): Promise<R04DeliveryOperationRecord | undefined>;
-}
+type TransitionalDeliveryOperationStorePort = RecoverableDeliveryOperationStorePort & DeliveryOperationStorePort;
 
 function partId(operation: PhotonPresentationOperation, index: number): string {
   return canonicalJson([...operationValues(operation), index]);
@@ -190,7 +125,7 @@ function activeClaim(
   );
 }
 
-function withoutClaim(record: R04DeliveryOperationRecord): DeliveryOperationRecord {
+function withoutClaim(record: RecoverableDeliveryOperationRecord): DeliveryOperationRecord {
   const { dispatchClaim: _dispatchClaim, ...persisted } = record;
   return persisted;
 }
@@ -201,7 +136,10 @@ function databaseTimestamp(value: Date | string, label: string): string {
   return timestamp;
 }
 
-async function persistDelivery(transaction: PhotonStateTransaction, record: R04DeliveryOperationRecord): Promise<void> {
+async function persistDelivery(
+  transaction: PhotonStateTransaction,
+  record: RecoverableDeliveryOperationRecord,
+): Promise<void> {
   const values = operationValues(record.operation);
   const claim = record.state === "dispatched" ? record.dispatchClaim : undefined;
   const updated = await transaction.query(
@@ -255,7 +193,7 @@ async function loadDelivery(
   database: PhotonStateTransaction,
   operation: PhotonPresentationOperation,
   locked = false,
-): Promise<R04DeliveryOperationRecord | undefined> {
+): Promise<RecoverableDeliveryOperationRecord | undefined> {
   const parent = await database.query<{
     record: unknown;
     record_version: number;
@@ -295,6 +233,7 @@ async function loadDelivery(
   let dispatchClaim: DeliveryDispatchClaim | undefined;
   if (row.dispatch_owner_id !== null && row.dispatch_lease_expires_at !== null) {
     if (persisted.state !== "dispatched") throw new TypeError("terminal delivery retains a dispatch claim");
+    nonempty(row.dispatch_owner_id, "dispatchOwnerId");
     dispatchClaim = {
       ownerId: row.dispatch_owner_id,
       fence: persisted.dispatchFence,
@@ -326,8 +265,8 @@ async function loadDelivery(
   return dispatchClaim === undefined ? persisted : { ...persisted, dispatchClaim };
 }
 
-export function createPhotonDeliveryStore(database: PhotonStateDatabase): R04DeliveryOperationStorePort {
-  const deliveries: R04DeliveryOperationStorePort = {
+export function createPhotonDeliveryStore(database: PhotonStateDatabase): TransitionalDeliveryOperationStorePort {
+  const deliveries: TransitionalDeliveryOperationStorePort = {
     async reserve(operation) {
       const parts = Array.from({ length: plannedPartCount(operation) }, (_, partIndex) => ({
         partId: partId(operation, partIndex),
@@ -394,7 +333,7 @@ export function createPhotonDeliveryStore(database: PhotonStateDatabase): R04Del
           return undefined;
         const dispatchFence = current.dispatchFence + 1;
         const dispatchClaim: DeliveryDispatchClaim = { ownerId, fence: dispatchFence, leaseExpiresAt };
-        const next: R04DeliveryOperationRecord = {
+        const next: RecoverableDeliveryOperationRecord = {
           ...current,
           operation,
           state: "dispatched",
@@ -425,7 +364,7 @@ export function createPhotonDeliveryStore(database: PhotonStateDatabase): R04Del
           !activeClaim(current.dispatchClaim, claim, now)
         )
           return undefined;
-        const next: R04DeliveryOperationRecord = {
+        const next: RecoverableDeliveryOperationRecord = {
           ...current,
           dispatchClaim: { ...claim, leaseExpiresAt },
           version: current.version + 1,
@@ -510,7 +449,7 @@ export function createPhotonDeliveryStore(database: PhotonStateDatabase): R04Del
           return storedPart.providerPart !== undefined && samePart(storedPart.providerPart, part) ? current : undefined;
         }
         if (storedPart.state !== "dispatched" || storedPart.dispatchFence !== claim.fence) return undefined;
-        const next: R04DeliveryOperationRecord = {
+        const next: RecoverableDeliveryOperationRecord = {
           ...current,
           parts: current.parts.map((candidate) =>
             candidate.partIndex === logicalPartIndex
@@ -542,7 +481,7 @@ export function createPhotonDeliveryStore(database: PhotonStateDatabase): R04Del
         )
           return undefined;
         const { dispatchClaim: _dispatchClaim, outcome: _outcome, ...retryable } = current;
-        const next: R04DeliveryOperationRecord = {
+        const next: RecoverableDeliveryOperationRecord = {
           ...retryable,
           operation,
           attempts: [...current.attempts, { operationId: operation.operationId, attemptId: operation.attemptId }],
@@ -558,7 +497,12 @@ export function createPhotonDeliveryStore(database: PhotonStateDatabase): R04Del
         return next;
       });
     },
-    async complete(operation, claim, outcome, now) {
+    async complete(
+      operation: PhotonPresentationOperation,
+      claim: DeliveryDispatchClaim | number,
+      outcome: PhotonOperationOutcome,
+      now?: string,
+    ) {
       if (typeof claim === "number" || now === undefined) return false;
       nonempty(claim.ownerId, "claim.ownerId");
       canonicalTimestamp(claim.leaseExpiresAt, "claim.leaseExpiresAt");
@@ -660,7 +604,7 @@ export function createPhotonDeliveryStore(database: PhotonStateDatabase): R04Del
           ],
         );
         const pageRows = rows.rows.slice(0, query.limit);
-        const found: R04DeliveryOperationRecord[] = [];
+        const found: RecoverableDeliveryOperationRecord[] = [];
         for (const row of pageRows) {
           const record = decoded("delivery-operation", row);
           if (record === undefined) throw new TypeError("delivery recovery record disappeared");
