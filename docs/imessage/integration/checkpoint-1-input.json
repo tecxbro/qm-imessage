@@ -97,7 +97,7 @@
     {
       "repairId": "r13",
       "baseCommit": "fe92c5b1a4aeddf4b8fdf893c37f7ccbeec81cb3",
-      "commit": "d49ff2dc7919fbff405d6c620544d994cfa640c4"
+      "commit": "a3032093ed04372e25bff61f84211241caff4fc5"
     },
     {
       "repairId": "r14",
@@ -106,13 +106,13 @@
     },
     {
       "repairId": "r15",
-      "baseCommit": "ce62c9ad2a0a14d6f58ebb526c31d07d58be8cae",
-      "commit": "f8e989d9436215f94b5eb8e678c12a068b41fe12"
+      "baseCommit": "3cc6c85dd995e939f00a0125d68e218ce551b998",
+      "commit": "b3cc3367d670556c221da641cb9311151043c9dc"
     },
     {
       "repairId": "r16",
-      "baseCommit": "f8e989d9436215f94b5eb8e678c12a068b41fe12",
-      "commit": "49f624ccd7b381f1891c3324b0d59301d7489c17"
+      "baseCommit": "b3cc3367d670556c221da641cb9311151043c9dc",
+      "commit": "b5589bb83f0649b814203d6d70a025d8e60361f0"
     }
   ],
   "integrationResolutions": [
