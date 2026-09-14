@@ -6,14 +6,20 @@ import type { ContentInput, Message as SpectrumMessage } from "spectrum-ts";
 import {
   parsePhotonOperationOutcome,
   type ConfirmedMessagePart,
+  type MessagePartReference,
   type PhotonPresentationOperation,
   type PhotonPresentationOperationInput,
 } from "../../chassis/src/photon-contract.ts";
-import { createAdvancedProviderClient, createSpectrumProviderClient } from "../src/provider/clients.ts";
+import {
+  createAdvancedProviderClient,
+  createSpectrumProviderClient,
+  withPhotonDeliveryRuntimeProgress,
+  type PhotonDeliveryRuntimeProgress,
+} from "../src/provider/clients.ts";
 import { constructAdvanced, narrowSpectrum, type SpectrumSpace } from "../src/provider/compatibility.ts";
 import { createConnectionManager } from "../src/provider/connection.ts";
 import type { ProviderLine } from "../src/provider/capabilities.ts";
-import type { PhotonDeliveryDispatch } from "../src/ports.ts";
+import type { DeliveryDispatchClaim, PhotonDeliveryDispatch, PhotonDeliveryProgressPort } from "../src/ports.ts";
 import { FakeEventReceiptStore } from "./fixtures.ts";
 
 const timestamp = new Date("2026-09-12T12:00:00.000Z");
@@ -21,17 +27,20 @@ const phone = "+15550000001";
 const chatGuid = "any;+;test-group";
 const credentials = { address: "127.0.0.1:1", token: "offline-token" };
 
-interface RepairProgress {
-  beforeSend(logicalPartIndexes: readonly number[]): Promise<void>;
-  confirm(part: ConfirmedMessagePart): Promise<void>;
-}
-
-type RepairDispatch<Operation extends PhotonPresentationOperation = PhotonPresentationOperation> =
-  PhotonDeliveryDispatch<Operation> & { progress?: RepairProgress };
-
 interface ProgressHooks {
-  beforeSend?(logicalPartIndexes: readonly number[]): void | Promise<void>;
-  confirm?(part: ConfirmedMessagePart): void | Promise<void>;
+  assertCanContinue?(
+    operation: PhotonPresentationOperation,
+    claim: DeliveryDispatchClaim,
+    logicalPartIndex: number,
+    now: string,
+  ): void | Promise<void>;
+  recordConfirmedPart?(
+    operation: PhotonPresentationOperation,
+    claim: DeliveryDispatchClaim,
+    logicalPartIndex: number,
+    part: MessagePartReference,
+    now: string,
+  ): void | Promise<void>;
 }
 
 function line(provider: "advanced-imessage" | "spectrum-imessage"): ProviderLine {
@@ -62,33 +71,55 @@ function dispatch<Operation extends PhotonPresentationOperation>(
   operationValue: Operation,
   logicalPartIndexes: readonly number[],
   confirmedParts: readonly ConfirmedMessagePart[],
-  progress?: RepairProgress,
-): RepairDispatch<Operation> {
-  return {
+  progress?: PhotonDeliveryRuntimeProgress,
+): PhotonDeliveryDispatch<Operation> {
+  const value: PhotonDeliveryDispatch<Operation> = {
     operation: operationValue,
     logicalPartIndexes,
     confirmedParts,
-    ...(progress ? { progress } : {}),
   };
+  return progress ? withPhotonDeliveryRuntimeProgress(value, progress) : value;
 }
 
-function progressRecorder(hooks: ProgressHooks = {}) {
-  const beforeCalls: number[][] = [];
-  const confirmCalls: ConfirmedMessagePart[] = [];
+function progressRecorder(
+  hooks: ProgressHooks = {},
+  times = [
+    "2026-09-14T12:00:00.000Z",
+    "2026-09-14T12:00:01.000Z",
+    "2026-09-14T12:00:02.000Z",
+    "2026-09-14T12:00:03.000Z",
+  ],
+) {
+  const claim: DeliveryDispatchClaim = {
+    ownerId: "dispatch-owner",
+    fence: 7,
+    leaseExpiresAt: "2026-09-14T12:01:00.000Z",
+  };
+  const assertCalls: Parameters<PhotonDeliveryProgressPort["assertCanContinue"]>[] = [];
+  const recordCalls: Parameters<PhotonDeliveryProgressPort["recordConfirmedPart"]>[] = [];
   const persisted: ConfirmedMessagePart[] = [];
-  const progress: RepairProgress = {
-    async beforeSend(logicalPartIndexes) {
-      const copy = [...logicalPartIndexes];
-      beforeCalls.push(copy);
-      await hooks.beforeSend?.(copy);
+  let timeIndex = 0;
+  const port: PhotonDeliveryProgressPort = {
+    async assertCanContinue(operation, receivedClaim, logicalPartIndex, now) {
+      assertCalls.push([operation, receivedClaim, logicalPartIndex, now]);
+      await hooks.assertCanContinue?.(operation, receivedClaim, logicalPartIndex, now);
     },
-    async confirm(part) {
-      confirmCalls.push(part);
-      await hooks.confirm?.(part);
-      persisted.push(structuredClone(part));
+    async recordConfirmedPart(operation, receivedClaim, logicalPartIndex, part, now) {
+      recordCalls.push([operation, receivedClaim, logicalPartIndex, part, now]);
+      await hooks.recordConfirmedPart?.(operation, receivedClaim, logicalPartIndex, part, now);
+      persisted.push({ logicalPartIndex, part: structuredClone(part) });
     },
   };
-  return { progress, beforeCalls, confirmCalls, persisted };
+  const progress: PhotonDeliveryRuntimeProgress = {
+    port,
+    claim,
+    now() {
+      const value = times[timeIndex++];
+      if (!value) throw new Error("missing canonical test time");
+      return value;
+    },
+  };
+  return { progress, claim, assertCalls, recordCalls, persisted };
 }
 
 function advancedMessage(overrides: Partial<AdvancedMessage> = {}): AdvancedMessage {
@@ -242,7 +273,7 @@ function multipart(scope: ProviderLine, first = "A", second = "B", identifiers =
   );
 }
 
-test("Spectrum multipart requires durable progress before provider side effects", async () => {
+test("Spectrum multipart with multiple unresolved parts requires durable progress before provider side effects", async () => {
   const h = await spectrumHarness();
   try {
     const send = mock.method(h.space, "send", async () => {
@@ -265,11 +296,11 @@ test("Spectrum multipart waits for durable confirmation before starting the next
   const events: string[] = [];
   let confirmCount = 0;
   const recorder = progressRecorder({
-    beforeSend(indexes) {
-      events.push(`before:${indexes.join(",")}`);
+    assertCanContinue(_operation, _claim, logicalPartIndex) {
+      events.push(`before:${logicalPartIndex}`);
     },
-    async confirm(part) {
-      events.push(`confirm:${part.logicalPartIndex}`);
+    async recordConfirmedPart(_operation, _claim, logicalPartIndex) {
+      events.push(`confirm:${logicalPartIndex}`);
       if (confirmCount++ === 0) {
         entered.resolve();
         await release.promise;
@@ -283,7 +314,14 @@ test("Spectrum multipart waits for durable confirmation before starting the next
     return spectrumMessage(h.space, { id: `accepted-${index}`, direction: "outbound" });
   });
   try {
-    const pending = h.client.deliver(dispatch(multipart(h.scope), [0, 1], [], recorder.progress));
+    const op = multipart(h.scope, "A", "B", { operationId: "operation-1", attemptId: "attempt-1" });
+    const runtimeDispatch = dispatch(op, [0, 1], [], recorder.progress);
+    assert.deepEqual(JSON.parse(JSON.stringify(runtimeDispatch)), {
+      operation: op,
+      logicalPartIndexes: [0, 1],
+      confirmedParts: [],
+    });
+    const pending = h.client.deliver(runtimeDispatch);
     await entered.promise;
     assert.equal(send.mock.callCount(), 1);
     assert.deepEqual(events, ["before:0", "send:0", "confirm:0"]);
@@ -292,11 +330,28 @@ test("Spectrum multipart waits for durable confirmation before starting the next
     assert.ok(outcome.kind === "confirmed-message");
     assert.equal(send.mock.callCount(), 2);
     assert.deepEqual(events, ["before:0", "send:0", "confirm:0", "before:1", "send:1", "confirm:1"]);
-    assert.deepEqual(recorder.beforeCalls, [[0], [1]]);
+    assert.deepEqual(
+      recorder.assertCalls.map((call) => call[2]),
+      [0, 1],
+    );
+    assert.deepEqual(
+      recorder.assertCalls.map((call) => call[3]),
+      ["2026-09-14T12:00:00.000Z", "2026-09-14T12:00:02.000Z"],
+    );
+    assert.deepEqual(
+      recorder.recordCalls.map((call) => call[4]),
+      ["2026-09-14T12:00:01.000Z", "2026-09-14T12:00:03.000Z"],
+    );
+    for (const call of [...recorder.assertCalls, ...recorder.recordCalls]) {
+      assert.strictEqual(call[0], op);
+      assert.strictEqual(call[1], recorder.claim);
+      assert.equal(call[0].attemptId, "attempt-1");
+    }
     assert.deepEqual(
       recorder.persisted.map((part) => part.logicalPartIndex),
       [0, 1],
     );
+    assert.equal(JSON.stringify(outcome).includes("dispatch-owner"), false);
     parsePhotonOperationOutcome(outcome);
   } finally {
     release.resolve();
@@ -308,7 +363,7 @@ test("Spectrum durable confirmation rejection returns ambiguous evidence without
   const h = await spectrumHarness();
   try {
     const recorder = progressRecorder({
-      async confirm() {
+      async recordConfirmedPart() {
         throw new Error("durable-receipt-rejected");
       },
     });
@@ -321,9 +376,12 @@ test("Spectrum durable confirmation rejection returns ambiguous evidence without
     assert.equal(outcome.confirmedParts.length, 1);
     assert.equal(outcome.confirmedParts[0]?.logicalPartIndex, 0);
     assert.equal(outcome.confirmedParts[0]?.part.messageId, "accepted-first");
-    assert.deepEqual(recorder.beforeCalls, [[0]]);
     assert.deepEqual(
-      recorder.confirmCalls.map((part) => part.logicalPartIndex),
+      recorder.assertCalls.map((call) => call[2]),
+      [0],
+    );
+    assert.deepEqual(
+      recorder.recordCalls.map((call) => call[2]),
       [0],
     );
     assert.equal(recorder.persisted.length, 0);
@@ -337,8 +395,8 @@ test("Spectrum authority loss before a later part prevents that provider write",
   const h = await spectrumHarness();
   try {
     const recorder = progressRecorder({
-      async beforeSend(indexes) {
-        if (indexes[0] === 1) throw new Error("stale-dispatch-fence");
+      async assertCanContinue(_operation, _claim, logicalPartIndex) {
+        if (logicalPartIndex === 1) throw new Error("stale-dispatch-fence");
       },
     });
     let sendIndex = 0;
@@ -349,7 +407,10 @@ test("Spectrum authority loss before a later part prevents that provider write",
     const outcome = await h.client.deliver(dispatch(multipart(h.scope), [0, 1], [], recorder.progress));
     assert.ok(outcome.kind === "ambiguous");
     assert.equal(send.mock.callCount(), 1);
-    assert.deepEqual(recorder.beforeCalls, [[0], [1]]);
+    assert.deepEqual(
+      recorder.assertCalls.map((call) => call[2]),
+      [0, 1],
+    );
     assert.deepEqual(
       recorder.persisted.map((part) => part.logicalPartIndex),
       [0],
@@ -369,8 +430,8 @@ test("Spectrum restart resumes unresolved parts while retaining the prior durabl
   const first = await spectrumHarness(scope);
   try {
     const firstProgress = progressRecorder({
-      async beforeSend(indexes) {
-        if (indexes[0] === 1) throw new Error("dispatch-owner-replaced");
+      async assertCanContinue(_operation, _claim, logicalPartIndex) {
+        if (logicalPartIndex === 1) throw new Error("dispatch-owner-replaced");
       },
     });
     const firstSend = mock.method(first.space, "send", async () =>
@@ -380,7 +441,7 @@ test("Spectrum restart resumes unresolved parts while retaining the prior durabl
     assert.ok(firstOutcome.kind === "ambiguous");
     assert.equal(firstSend.mock.callCount(), 1);
     assert.deepEqual(
-      firstProgress.confirmCalls.map((part) => part.logicalPartIndex),
+      firstProgress.recordCalls.map((call) => call[2]),
       [0],
     );
     assert.deepEqual(
@@ -405,15 +466,8 @@ test("Spectrum restart resumes unresolved parts while retaining the prior durabl
       assert.ok(outcome.kind === "confirmed-message");
       assert.equal(secondSend.mock.callCount(), 1);
       assert.equal(sentText, "B");
-      assert.deepEqual(secondProgress.beforeCalls, [[1]]);
-      assert.deepEqual(
-        secondProgress.confirmCalls.map((part) => part.logicalPartIndex),
-        [1],
-      );
-      assert.deepEqual(
-        secondProgress.persisted.map((part) => part.logicalPartIndex),
-        [1],
-      );
+      assert.deepEqual(secondProgress.assertCalls, []);
+      assert.deepEqual(secondProgress.recordCalls, []);
       assert.deepEqual(
         outcome.confirmedParts.map((part) => part.logicalPartIndex),
         [0, 1],
@@ -428,18 +482,11 @@ test("Spectrum restart resumes unresolved parts while retaining the prior durabl
   }
 });
 
-test("Advanced multipart keeps one atomic provider write and checkpoints each returned part", async () => {
+test("Advanced multipart keeps one atomic provider write without sequential progress callbacks", async () => {
   const h = await advancedHarness();
   try {
     const events: string[] = [];
-    const recorder = progressRecorder({
-      beforeSend(indexes) {
-        events.push(`before:${indexes.join(",")}`);
-      },
-      confirm(part) {
-        events.push(`confirm:${part.logicalPartIndex}`);
-      },
-    });
+    const recorder = progressRecorder();
     const send = mock.method(h.sdk.messages, "sendMultipart", async () => {
       events.push("provider");
       return advancedMessage({ guid: "atomic-message", isFromMe: true, partCount: 2 });
@@ -452,12 +499,10 @@ test("Advanced multipart keeps one atomic provider write and checkpoints each re
       { text: "A", bubbleIndex: 0 },
       { text: "B", bubbleIndex: 1 },
     ]);
-    assert.deepEqual(events, ["before:0,1", "provider", "confirm:0", "confirm:1"]);
-    assert.deepEqual(recorder.beforeCalls, [[0, 1]]);
-    assert.deepEqual(
-      recorder.persisted.map((part) => part.logicalPartIndex),
-      [0, 1],
-    );
+    assert.deepEqual(events, ["provider"]);
+    assert.deepEqual(recorder.assertCalls, []);
+    assert.deepEqual(recorder.recordCalls, []);
+    assert.deepEqual(recorder.persisted, []);
     assert.deepEqual(
       outcome.confirmedParts.map((part) => part.logicalPartIndex),
       [0, 1],

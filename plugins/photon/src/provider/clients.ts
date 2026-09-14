@@ -40,8 +40,10 @@ import {
 } from "../../../chassis/src/photon-contract.ts";
 import type {
   AdvancedIMessageProviderClientPort,
+  DeliveryDispatchClaim,
   EventReceiptStorePort,
   PhotonDeliveryDispatch,
+  PhotonDeliveryProgressPort,
   SpectrumProviderClientPort,
 } from "../ports.ts";
 import { operationRestriction, sameConversation, sameLine } from "./capabilities.ts";
@@ -54,32 +56,57 @@ type Operation<Name extends PhotonPresentationOperation["name"]> = Extract<Photo
 type Success = Extract<PhotonOperationOutcome, { kind: "confirmed-message" | "confirmed-no-message" }>;
 type Unconfirmed = Exclude<PhotonOperationOutcome, Success>;
 type Materialize = (reference: OutboundAttachmentReference) => Promise<Uint8Array>;
-interface PhotonDispatchProgress {
-  beforeSend(logicalPartIndexes: readonly number[]): Promise<void>;
-  confirm(part: ConfirmedMessagePart): Promise<void>;
+
+export interface PhotonDeliveryRuntimeProgress {
+  port: PhotonDeliveryProgressPort;
+  claim: DeliveryDispatchClaim;
+  now(): string;
 }
 
-function dispatchProgress(dispatch: PhotonDeliveryDispatch): PhotonDispatchProgress | undefined {
-  return (dispatch as PhotonDeliveryDispatch & { progress?: PhotonDispatchProgress }).progress;
+const photonDeliveryRuntimeProgress = Symbol("photonDeliveryRuntimeProgress");
+
+export function withPhotonDeliveryRuntimeProgress<Dispatch extends PhotonDeliveryDispatch>(
+  dispatch: Dispatch,
+  progress: PhotonDeliveryRuntimeProgress,
+): Dispatch {
+  const runtimeDispatch = { ...dispatch };
+  Object.defineProperty(runtimeDispatch, photonDeliveryRuntimeProgress, { value: progress });
+  return runtimeDispatch;
+}
+
+function runtimeProgress(dispatch: PhotonDeliveryDispatch): PhotonDeliveryRuntimeProgress | undefined {
+  return (dispatch as PhotonDeliveryDispatch & { [photonDeliveryRuntimeProgress]?: PhotonDeliveryRuntimeProgress })[
+    photonDeliveryRuntimeProgress
+  ];
 }
 
 async function beforeProviderWrite(
-  progress: PhotonDispatchProgress,
-  logicalPartIndexes: readonly number[],
+  progress: PhotonDeliveryRuntimeProgress,
+  operation: PhotonPresentationOperation,
+  logicalPartIndex: number,
 ): Promise<void> {
   try {
-    await progress.beforeSend(logicalPartIndexes);
+    await progress.port.assertCanContinue(operation, progress.claim, logicalPartIndex, progress.now());
   } catch {
     throw new Error("PHOTON_DISPATCH_AUTHORITY_LOST");
   }
 }
 
 async function confirmProviderWrites(
-  progress: PhotonDispatchProgress,
+  progress: PhotonDeliveryRuntimeProgress,
+  operation: PhotonPresentationOperation,
   confirmedParts: readonly ConfirmedMessagePart[],
 ): Promise<void> {
   try {
-    for (const part of confirmedParts) await progress.confirm(part);
+    for (const part of confirmedParts) {
+      await progress.port.recordConfirmedPart(
+        operation,
+        progress.claim,
+        part.logicalPartIndex,
+        part.part,
+        progress.now(),
+      );
+    }
   } catch {
     throw new Error("PHOTON_DURABLE_PART_CHECKPOINT_FAILED");
   }
@@ -405,7 +432,6 @@ export function createAdvancedProviderClient(
       }),
     sendMultipart: (dispatch) => {
       const confirmedParts = [...dispatch.confirmedParts];
-      const progress = dispatchProgress(dispatch);
       return run(
         dispatch.operation,
         async () => {
@@ -420,7 +446,6 @@ export function createAdvancedProviderClient(
             throw new Error("UNSUPPORTED_PART");
           });
           await prepare(operation);
-          if (progress) await beforeProviderWrite(progress, dispatch.logicalPartIndexes);
           connection.assertActive();
           const result = await sdk.messages.sendMultipart(operation.conversation.conversationId, parts, {
             ...options(operation),
@@ -430,7 +455,6 @@ export function createAdvancedProviderClient(
           const selected = new Set(dispatch.logicalPartIndexes);
           const newlyConfirmed = confirmed.confirmedParts.filter((part) => selected.has(part.logicalPartIndex));
           confirmedParts.push(...newlyConfirmed);
-          if (progress) await confirmProviderWrites(progress, newlyConfirmed);
           return confirmed;
         },
         confirmedParts,
@@ -722,8 +746,8 @@ export function createSpectrumProviderClient(
     dispatch: Parameters<SpectrumProviderClientPort["deliver"]>[0],
   ): Promise<PhotonOperationOutcome> {
     const operation = dispatch.operation;
-    const progress = dispatchProgress(dispatch);
-    if (operation.name === "message.multipart" && progress === undefined)
+    const progress = runtimeProgress(dispatch);
+    if (operation.name === "message.multipart" && dispatch.logicalPartIndexes.length > 1 && progress === undefined)
       return unsupported(operation, "durable-multipart-progress-unavailable");
     const confirmedParts = [...dispatch.confirmedParts];
     return run(
@@ -739,7 +763,6 @@ export function createSpectrumProviderClient(
         )
           throw new ValidationError("Group required", { code: "operationNotSupported", retryable: false, grpcCode: 3 });
         if (operation.name === "message.multipart") {
-          if (progress === undefined) throw new Error("DURABLE_MULTIPART_PROGRESS_REQUIRED");
           validateDispatch(dispatch);
           const content = await Promise.all(
             dispatch.logicalPartIndexes.map(async (index) => {
@@ -757,12 +780,16 @@ export function createSpectrumProviderClient(
           for (const [offset, part] of content.entries()) {
             const logicalPartIndex = dispatch.logicalPartIndexes[offset];
             if (logicalPartIndex === undefined) throw new Error("MISSING_DISPATCH_INDEX");
-            await beforeProviderWrite(progress, [logicalPartIndex]);
+            if (progress && dispatch.logicalPartIndexes.length > 1) {
+              await beforeProviderWrite(progress, operation, logicalPartIndex);
+            }
             connection.assertActive();
             const message = await space.send(part);
             const confirmed = spectrumResult(operation, connection.line.phone, [message], [logicalPartIndex]);
             confirmedParts.push(...confirmed.confirmedParts);
-            await confirmProviderWrites(progress, confirmed.confirmedParts);
+            if (progress && dispatch.logicalPartIndexes.length > 1) {
+              await confirmProviderWrites(progress, operation, confirmed.confirmedParts);
+            }
             if (message) messages.push(message);
           }
           return spectrumResult(
