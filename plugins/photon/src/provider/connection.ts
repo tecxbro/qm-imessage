@@ -1,5 +1,6 @@
 import type { ProviderLine } from "./capabilities.ts";
 import { constructAdvanced, constructSpectrum, type AdvancedClient, type SpectrumApp } from "./compatibility.ts";
+import type { ProviderLineOwnerLease, ProviderLineOwnership } from "./line-owner.ts";
 
 export interface LineCredentials {
   readonly address: string;
@@ -28,6 +29,7 @@ const localOwners = new Set<string>();
 
 export function createConnectionManager(
   constructors: ProviderConstructors = { advanced: constructAdvanced, spectrum: constructSpectrum },
+  ownership?: ProviderLineOwnership,
 ) {
   let current: ProviderConnection | undefined;
   let transition = Promise.resolve();
@@ -55,12 +57,33 @@ export function createConnectionManager(
         return Promise.reject(new Error("PROVIDER_CREDENTIALS_OR_LINE_MISSING"));
       const generation = ++epoch;
       return serialize(async () => {
+        if (ownership === undefined) throw new Error("PROVIDER_LINE_OWNER_MISSING");
         await current?.stop();
         current = undefined;
         if (generation !== epoch) throw new Error("PROVIDER_REPLACED_DURING_CONSTRUCTION");
         const ownerKey = JSON.stringify([config.line.reference.installationId, config.line.reference.lineId]);
         if (localOwners.has(ownerKey)) throw new Error("PROVIDER_LINE_ALREADY_OWNED");
         localOwners.add(ownerKey);
+        const lossTarget: { stop?: () => Promise<void> } = {};
+        let ownershipLost = false;
+        let lease: ProviderLineOwnerLease;
+        try {
+          const acquired = await ownership.acquire(
+            {
+              installationId: config.line.reference.installationId,
+              lineId: config.line.reference.lineId,
+            },
+            async () => {
+              ownershipLost = true;
+              await lossTarget.stop?.();
+            },
+          );
+          if (acquired === undefined) throw new Error("PROVIDER_LINE_ALREADY_OWNED");
+          lease = acquired;
+        } catch (error) {
+          localOwners.delete(ownerKey);
+          throw error;
+        }
         let resources: { kind: "advanced"; sdk: AdvancedClient } | { kind: "spectrum"; sdk: SpectrumApp };
         try {
           resources =
@@ -72,19 +95,27 @@ export function createConnectionManager(
                 };
         } catch (error) {
           localOwners.delete(ownerKey);
+          try {
+            await lease.release();
+          } catch (releaseError) {
+            throw new AggregateError([error, releaseError], "provider construction and line-owner cleanup failed", {
+              cause: releaseError,
+            });
+          }
           throw error;
         }
-        let active = true;
+        let active = !ownershipLost;
         let stopping: Promise<void> | undefined;
         const consumers = new Set<() => Promise<void>>();
-        const connection: ProviderConnection = {
+        const establishedConnection: ProviderConnection = {
           ...resources,
           line: config.line,
           assertActive() {
             if (!active || generation !== epoch) throw new Error("PROVIDER_CONNECTION_STOPPED");
+            lease.assertActive();
           },
           addConsumer(stop) {
-            connection.assertActive();
+            establishedConnection.assertActive();
             if (consumers.size > 0) throw new Error("PROVIDER_INTAKE_ALREADY_OWNED");
             consumers.add(stop);
             return () => {
@@ -100,6 +131,7 @@ export function createConnectionManager(
               const failure = results.find((result) => result.status === "rejected");
               if (failure?.status === "rejected") throw failure.reason;
               consumers.clear();
+              await lease.release();
               localOwners.delete(ownerKey);
             })().catch((error: unknown) => {
               stopping = undefined;
@@ -108,12 +140,23 @@ export function createConnectionManager(
             return stopping;
           },
         };
+        lossTarget.stop = () => establishedConnection.stop();
         if (generation !== epoch) {
-          await connection.stop();
+          await establishedConnection.stop();
           throw new Error("PROVIDER_REPLACED_DURING_CONSTRUCTION");
         }
-        current = connection;
-        return connection;
+        if (ownershipLost) {
+          await establishedConnection.stop();
+          throw new Error("PROVIDER_LINE_OWNERSHIP_LOST");
+        }
+        try {
+          lease.assertActive();
+        } catch (error) {
+          await establishedConnection.stop();
+          throw error;
+        }
+        current = establishedConnection;
+        return establishedConnection;
       });
     },
     stop(): Promise<void> {
