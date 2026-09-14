@@ -72,10 +72,12 @@ Every parallel repair started at `fe92c5b1a4aeddf4b8fdf893c37f7ccbeec81cb3`. Fol
 | R10    | `9599bf4b047b171a2891f3c8d7a7784fde635472` | `24a545558514adf9aec9dc058fdfff2015d0e1e6` | Scoped credentials plus R14-compatible replacement test                      |
 | R11    | `1a97cb6627a3e3dcea16e3fc02589f03fdf8a108` | `f79377c081d4df1c3abacd872834941207b83593` | Runtime-only multipart progress plus recoverable Spectrum receipt port       |
 | R12    | `739d848151389c3fdf48217dacb0047569525e29` | `ed2ea311a65560c4fc2b1a6e268e69fada40fe5d` | Authenticated Photon host and fail-closed registry                           |
-| R13    | `d49ff2dc7919fbff405d6c620544d994cfa640c4` | `fb60ba1e352804c6cc68aae02585a38131259d6a` | Repair provenance, coordinator identity, and exact resolution enforcement     |
+| R13    | `d49ff2dc7919fbff405d6c620544d994cfa640c4` | `fb60ba1e352804c6cc68aae02585a38131259d6a` | Repair provenance, coordinator identity, and exact resolution enforcement    |
 | R14    | `fbb39aad79628665e09a42da56f4ea4238e5c1fc` | `ebff3833de4c5263828a4ad73c68b937c7aa5c31` | Durable cross-mode physical-line ownership                                   |
 
 ## Integration joins and resolutions
+
+Coordinator commit `601bb0216db2a48445b2272b12ea2846e70cd677` adopts the required shared Photon store ports after the repair merges. Its same-path updates to the WT03 state aggregate and state tests are integration-owned contract and migration-test adaptations; the R02, R03, and R04 focused implementations remain owned by their captured repair heads.
 
 R15 was rebuilt after the final R01-R14 heads so its dependency ancestry is explicit. Its base is `ce62c9ad2a0a14d6f58ebb526c31d07d58be8cae`, contribution is `f8e989d9436215f94b5eb8e678c12a068b41fe12`, and coordinator merge is `e126093a6052ebc8063b5028a332e2a47f596acb`.
 
