@@ -2,8 +2,15 @@ import { randomUUID } from "node:crypto";
 import type { Delivery, DeliveryProvenance, Destination, OutgoingAttachment, ScopeId } from "../types.ts";
 import type { TurnOrigin } from "../core/turn-origin.ts";
 import { cronIdOf } from "../sessions/session-store.ts";
+import { isPhotonDestination } from "../surfaces/photon-destinations.ts";
 
 export const DELIVERY_MAX_AGE_MS = 6 * 3_600_000;
+
+export function supportsRecipientThread(destination: Destination): boolean {
+  return (
+    destination?.type === "principal" || (isPhotonDestination(destination) && destination.conversationKind === "dm")
+  );
+}
 
 export function logDeliveryExpiry(d: Delivery, now: number, reason = "overaged"): void {
   console.error(
@@ -178,7 +185,7 @@ export function createDeliveryStore(opts?: { maxAgeMs?: number }): DeliveryStore
     },
     async recordRecipientThread(id, recipientThreadRef, at) {
       const d = deliveries.get(id);
-      if (!d || d.destination.type !== "principal") return;
+      if (!d || !supportsRecipientThread(d.destination)) return;
       d.recipientThreadRef = recipientThreadRef;
       if (d.deliveredAt === null) {
         d.deliveredAt = at;
@@ -188,7 +195,7 @@ export function createDeliveryStore(opts?: { maxAgeMs?: number }): DeliveryStore
     async listByRecipientThread(recipientThreadRef, opts) {
       const limit = Math.max(1, opts?.limit ?? 20);
       return [...deliveries.values()]
-        .filter((d) => d.recipientThreadRef === recipientThreadRef && d.destination.type === "principal")
+        .filter((d) => d.recipientThreadRef === recipientThreadRef && supportsRecipientThread(d.destination))
         .sort((a, b) => a.createdAt - b.createdAt)
         .slice(-limit);
     },

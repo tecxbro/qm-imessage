@@ -1,7 +1,12 @@
 import { randomUUID } from "node:crypto";
 import { createPgPool, type PgPool } from "../persistence/pg-pool.ts";
 import type { Delivery, DeliveryProvenance, Destination, OutgoingAttachment } from "../types.ts";
-import { DELIVERY_MAX_AGE_MS, logDeliveryExpiry, type DeliveryStore } from "./delivery-store.ts";
+import {
+  DELIVERY_MAX_AGE_MS,
+  logDeliveryExpiry,
+  supportsRecipientThread,
+  type DeliveryStore,
+} from "./delivery-store.ts";
 import { cronIdOf, threadRefCronIdExpr } from "../sessions/session-store.ts";
 
 const NOW_MS_SQL = "(EXTRACT(EPOCH FROM clock_timestamp()) * 1000)::BIGINT";
@@ -219,25 +224,47 @@ export function createPostgresDeliveryStore(connectionString: string, opts?: { m
       return rows[0] ? rowToDelivery(rows[0]) : null;
     },
     async recordRecipientThread(id, recipientThreadRef, at) {
+      const rows = await q("SELECT * FROM deliveries WHERE id = $1", [id]);
+      const delivery = rows[0] ? rowToDelivery(rows[0]) : undefined;
+      if (!delivery || !supportsRecipientThread(delivery.destination)) return;
+      const principal = delivery.destination.type === "principal";
       await query(
         `UPDATE deliveries
             SET recipient_thread_ref = $2,
                 expired_at = CASE WHEN delivered_at IS NULL THEN NULL ELSE expired_at END,
                 delivered_at = COALESCE(delivered_at, $3)
-          WHERE id = $1 AND destination->>'type' = 'principal'`,
-        [id, recipientThreadRef, at],
+          WHERE id = $1 AND ${principal ? "destination->>'type' = 'principal'" : "destination = $4::jsonb"}`,
+        principal ? [id, recipientThreadRef, at] : [id, recipientThreadRef, at, JSON.stringify(delivery.destination)],
       );
     },
     async listByRecipientThread(recipientThreadRef, opts) {
       const limit = Math.max(1, opts?.limit ?? 20);
-      const rows = await q(
-        `SELECT * FROM deliveries
-          WHERE recipient_thread_ref = $1 AND destination->>'type' = 'principal'
-          ORDER BY created_at DESC
-          LIMIT $2`,
-        [recipientThreadRef, limit],
-      );
-      return rows.map(rowToDelivery).reverse();
+      const deliveries: Delivery[] = [];
+      let beforeCreatedAt: number | undefined;
+      let beforeId: string | undefined;
+      while (deliveries.length < limit) {
+        const rows = await q(
+          `SELECT * FROM deliveries
+            WHERE recipient_thread_ref = $1
+              AND (destination->>'type' = 'principal'
+                OR (destination->>'type' = 'photon' AND destination->>'conversationKind' = 'dm'))
+              AND ($3::bigint IS NULL OR (created_at, id) < ($3::bigint, $4::text))
+            ORDER BY created_at DESC, id DESC
+            LIMIT $2`,
+          [recipientThreadRef, limit, beforeCreatedAt ?? null, beforeId ?? null],
+        );
+        if (!rows.length) break;
+        for (const row of rows) {
+          const delivery = rowToDelivery(row);
+          if (supportsRecipientThread(delivery.destination)) deliveries.push(delivery);
+          if (deliveries.length === limit) break;
+        }
+        if (deliveries.length === limit || rows.length < limit) break;
+        const last = rows.at(-1)!;
+        beforeCreatedAt = Number(last.created_at);
+        beforeId = last.id as string;
+      }
+      return deliveries.reverse();
     },
     async listBySourceSession(sourceSessionId, sourceThreadRef, opts) {
       const limit = Math.max(1, opts?.limit ?? 20);
