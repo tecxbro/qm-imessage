@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { createDeliveryStore, supportsRecipientThread } from "../src/delivery/delivery-store.ts";
+import { createDeliveryStore, type PhotonDmBacklink } from "../src/delivery/delivery-store.ts";
 import { createPhotonDestination, type PhotonDestination } from "../src/surfaces/photon-destinations.ts";
 import type { Destination } from "../src/types.ts";
 
@@ -34,6 +34,13 @@ function photonGroup(): PhotonDestination {
   });
 }
 
+function backlink(destination: PhotonDestination): PhotonDmBacklink {
+  return {
+    recipientPrincipalId: destination.recipientPrincipalId!,
+    conversation: structuredClone(destination.conversation),
+  };
+}
+
 const malformedPhoton = {
   type: "photon",
   target: conversation.conversationId,
@@ -41,31 +48,39 @@ const malformedPhoton = {
   recipientPrincipalId: "alice",
 } as Destination;
 
-describe("Photon delivery recipient-thread backlinks", () => {
-  it("accepts principals and validated Photon DMs while rejecting groups and malformed destinations", () => {
-    assert.equal(supportsRecipientThread({ type: "principal", target: "alice" }), true);
-    assert.equal(supportsRecipientThread(photonDm("predicate")), true);
-    assert.equal(supportsRecipientThread(photonGroup()), false);
-    assert.equal(supportsRecipientThread(malformedPhoton), false);
-    assert.equal(supportsRecipientThread(null as unknown as Destination), false);
+describe("Photon delivery backlinks", () => {
+  it("records one canonical Photon DM backlink without changing delivery or Slack state", async () => {
+    const store = createDeliveryStore();
+    const destination = photonDm("canonical");
+    const delivery = await store.enqueue({
+      destination,
+      text: "Photon DM",
+      idempotencyKey: "r08-memory-canonical",
+    });
+
+    assert.equal(await store.recordPhotonDmBacklink(delivery.id, backlink(destination)), "recorded");
+    assert.equal(await store.recordPhotonDmBacklink(delivery.id, backlink(destination)), "duplicate");
+    assert.deepEqual(await store.photonDmBacklink(delivery.id), backlink(destination));
+    assert.equal(delivery.deliveredAt, null);
+    assert.equal(delivery.recipientThreadRef, undefined);
+
+    const returned = await store.photonDmBacklink(delivery.id);
+    returned!.conversation.conversationId = "mutated";
+    assert.deepEqual(await store.photonDmBacklink(delivery.id), backlink(destination));
+
+    await store.recordRecipientThread(delivery.id, "agent:main:dm:alice", 1_000);
+    assert.equal(delivery.deliveredAt, null);
+    assert.equal(delivery.recipientThreadRef, undefined);
+    assert.deepEqual(await store.listByRecipientThread("agent:main:dm:alice"), []);
   });
 
-  it("keeps principal and Photon DM recording, duplicate handling, filtering, and ordering in parity", async () => {
+  it("rejects wrong recipients, noncanonical records, groups, malformed destinations, and absent deliveries", async () => {
     const store = createDeliveryStore();
-    const principal = await store.enqueue({
-      destination: { type: "principal", target: "alice" },
-      text: "principal",
-      idempotencyKey: "r08-memory-principal",
-    });
-    const firstDm = await store.enqueue({
-      destination: photonDm("first"),
-      text: "first Photon DM",
-      idempotencyKey: "r08-memory-dm-first",
-    });
-    const secondDm = await store.enqueue({
-      destination: photonDm("second"),
-      text: "second Photon DM",
-      idempotencyKey: "r08-memory-dm-second",
+    const destination = photonDm("reject");
+    const delivery = await store.enqueue({
+      destination,
+      text: "Photon DM",
+      idempotencyKey: "r08-memory-reject",
     });
     const group = await store.enqueue({
       destination: photonGroup(),
@@ -74,46 +89,66 @@ describe("Photon delivery recipient-thread backlinks", () => {
     });
     const malformed = await store.enqueue({
       destination: malformedPhoton,
-      text: "malformed Photon candidate",
+      text: "malformed Photon",
       idempotencyKey: "r08-memory-malformed",
     });
 
-    principal.createdAt = 100;
-    firstDm.createdAt = 200;
-    secondDm.createdAt = 300;
-    group.createdAt = 400;
-    malformed.createdAt = 500;
-
-    await store.recordRecipientThread(principal.id, "agent:main:dm:alice", 1_000);
-    await store.recordRecipientThread(firstDm.id, "agent:main:dm:alice", 2_000);
-    await store.recordRecipientThread(firstDm.id, "agent:main:dm:alice", 3_000);
-    await store.recordRecipientThread(secondDm.id, "agent:main:dm:alice", 4_000);
-    await store.recordRecipientThread(group.id, "agent:main:dm:alice", 5_000);
-    await store.recordRecipientThread(malformed.id, "agent:main:dm:alice", 6_000);
-    malformed.recipientThreadRef = "agent:main:dm:alice";
-
-    assert.equal(firstDm.deliveredAt, 2_000);
-    assert.equal(group.deliveredAt, null);
-    assert.equal(group.recipientThreadRef, undefined);
-    assert.equal(malformed.deliveredAt, null);
-    assert.deepEqual(
-      (await store.listByRecipientThread("agent:main:dm:alice", { limit: 2 })).map((delivery) => delivery.id),
-      [firstDm.id, secondDm.id],
+    assert.equal(
+      await store.recordPhotonDmBacklink(delivery.id, {
+        ...backlink(destination),
+        recipientPrincipalId: "bob",
+      }),
+      "conflict",
     );
+    assert.equal(
+      await store.recordPhotonDmBacklink(delivery.id, {
+        ...backlink(destination),
+        conversation: { ...destination.conversation, conversationId: "another-conversation" },
+      }),
+      "conflict",
+    );
+    assert.equal(
+      await store.recordPhotonDmBacklink(delivery.id, { ...backlink(destination), extra: true } as PhotonDmBacklink),
+      "conflict",
+    );
+    assert.equal(await store.recordPhotonDmBacklink(group.id, backlink(destination)), "conflict");
+    assert.equal(await store.recordPhotonDmBacklink(malformed.id, backlink(destination)), "conflict");
+    assert.equal(await store.recordPhotonDmBacklink("absent", backlink(destination)), "conflict");
+    assert.equal(await store.photonDmBacklink(delivery.id), undefined);
   });
 
-  it("rejects a Photon destination that is no longer a validated DM when recording begins", async () => {
+  it("fails closed when a delivery no longer has the canonical Photon DM destination", async () => {
     const store = createDeliveryStore();
+    const destination = photonDm("mutated");
     const delivery = await store.enqueue({
-      destination: photonDm("mutated"),
-      text: "mutated destination",
+      destination,
+      text: "destination mutation",
       idempotencyKey: "r08-memory-mutated",
     });
+    assert.equal(await store.recordPhotonDmBacklink(delivery.id, backlink(destination)), "recorded");
+
     delivery.destination = photonGroup();
 
-    await store.recordRecipientThread(delivery.id, "agent:main:dm:alice", 1_000);
+    assert.equal(await store.photonDmBacklink(delivery.id), undefined);
+    assert.equal(await store.recordPhotonDmBacklink(delivery.id, backlink(destination)), "conflict");
+  });
 
-    assert.equal(delivery.deliveredAt, null);
-    assert.equal(delivery.recipientThreadRef, undefined);
+  it("preserves principal recipient-thread behavior", async () => {
+    const store = createDeliveryStore();
+    const principal = await store.enqueue({
+      destination: { type: "principal", target: "alice" },
+      text: "Slack DM",
+      idempotencyKey: "r08-memory-principal",
+    });
+
+    await store.recordRecipientThread(principal.id, "dm:D-alice", 2_000);
+
+    assert.equal(principal.deliveredAt, 2_000);
+    assert.equal(principal.recipientThreadRef, "dm:D-alice");
+    assert.deepEqual(
+      (await store.listByRecipientThread("dm:D-alice")).map((row) => row.id),
+      [principal.id],
+    );
+    assert.equal(await store.recordPhotonDmBacklink(principal.id, backlink(photonDm("principal"))), "conflict");
   });
 });

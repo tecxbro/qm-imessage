@@ -1,15 +1,48 @@
 import { randomUUID } from "node:crypto";
+import { isDeepStrictEqual } from "node:util";
+import type { ConversationReference } from "../../plugins/chassis/src/photon-contract.ts";
 import type { Delivery, DeliveryProvenance, Destination, OutgoingAttachment, ScopeId } from "../types.ts";
 import type { TurnOrigin } from "../core/turn-origin.ts";
 import { cronIdOf } from "../sessions/session-store.ts";
-import { isPhotonDestination } from "../surfaces/photon-destinations.ts";
+import { isPhotonDestination, parsePhotonConversationReference } from "../surfaces/photon-destinations.ts";
 
 export const DELIVERY_MAX_AGE_MS = 6 * 3_600_000;
 
-export function supportsRecipientThread(destination: Destination): boolean {
-  return (
-    destination?.type === "principal" || (isPhotonDestination(destination) && destination.conversationKind === "dm")
-  );
+export interface PhotonDmBacklink {
+  recipientPrincipalId: string;
+  conversation: ConversationReference;
+}
+
+function record(value: unknown): Record<string, unknown> | undefined {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const prototype = Object.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null ? (value as Record<string, unknown>) : undefined;
+}
+
+export function photonDmBacklinkForDestination(destination: Destination, value: unknown): PhotonDmBacklink | undefined {
+  if (!isPhotonDestination(destination) || destination.conversationKind !== "dm") return undefined;
+  const input = record(value);
+  if (
+    !input ||
+    Reflect.ownKeys(input).length !== 2 ||
+    !("recipientPrincipalId" in input) ||
+    !("conversation" in input)
+  ) {
+    return undefined;
+  }
+  const conversation = parsePhotonConversationReference(input.conversation);
+  if (
+    typeof input.recipientPrincipalId !== "string" ||
+    input.recipientPrincipalId !== destination.recipientPrincipalId ||
+    !conversation ||
+    !isDeepStrictEqual(conversation, destination.conversation)
+  ) {
+    return undefined;
+  }
+  return {
+    recipientPrincipalId: destination.recipientPrincipalId,
+    conversation: structuredClone(destination.conversation),
+  };
 }
 
 export function logDeliveryExpiry(d: Delivery, now: number, reason = "overaged"): void {
@@ -57,6 +90,11 @@ export interface DeliveryStore {
   ackByKey(idempotencyKey: string, at: number): Promise<void>;
   setEditRefByKey(idempotencyKey: string, editRef: string): Promise<void>;
   get(id: string): Promise<Delivery | null>;
+  recordPhotonDmBacklink(
+    deliveryId: string,
+    backlink: PhotonDmBacklink,
+  ): Promise<"recorded" | "duplicate" | "conflict">;
+  photonDmBacklink(deliveryId: string): Promise<PhotonDmBacklink | undefined>;
   recordRecipientThread(id: string, recipientThreadRef: string, at: number): Promise<void>;
   listByRecipientThread(recipientThreadRef: string, opts?: { limit?: number }): Promise<Delivery[]>;
   listBySourceSession(sourceSessionId: string, sourceThreadRef: string, opts?: { limit?: number }): Promise<Delivery[]>;
@@ -70,6 +108,7 @@ export function createDeliveryStore(opts?: { maxAgeMs?: number }): DeliveryStore
   const deliveries = new Map<string, Delivery>();
   const byKey = new Map<string, string>();
   const claimedUntil = new Map<string, number>();
+  const photonDmBacklinks = new Map<string, PhotonDmBacklink>();
   const enqueueListeners = new Set<() => void>();
 
   const expireOveraged = (now: number): void => {
@@ -183,9 +222,25 @@ export function createDeliveryStore(opts?: { maxAgeMs?: number }): DeliveryStore
     async get(id) {
       return deliveries.get(id) ?? null;
     },
+    async recordPhotonDmBacklink(deliveryId, backlink) {
+      const delivery = deliveries.get(deliveryId);
+      if (!delivery) return "conflict";
+      const canonical = photonDmBacklinkForDestination(delivery.destination, backlink);
+      if (!canonical) return "conflict";
+      const existing = photonDmBacklinks.get(deliveryId);
+      if (existing) return isDeepStrictEqual(existing, canonical) ? "duplicate" : "conflict";
+      photonDmBacklinks.set(deliveryId, canonical);
+      return "recorded";
+    },
+    async photonDmBacklink(deliveryId) {
+      const delivery = deliveries.get(deliveryId);
+      const stored = photonDmBacklinks.get(deliveryId);
+      if (!delivery || !stored) return undefined;
+      return photonDmBacklinkForDestination(delivery.destination, stored);
+    },
     async recordRecipientThread(id, recipientThreadRef, at) {
       const d = deliveries.get(id);
-      if (!d || !supportsRecipientThread(d.destination)) return;
+      if (!d || d.destination.type !== "principal") return;
       d.recipientThreadRef = recipientThreadRef;
       if (d.deliveredAt === null) {
         d.deliveredAt = at;
@@ -195,7 +250,7 @@ export function createDeliveryStore(opts?: { maxAgeMs?: number }): DeliveryStore
     async listByRecipientThread(recipientThreadRef, opts) {
       const limit = Math.max(1, opts?.limit ?? 20);
       return [...deliveries.values()]
-        .filter((d) => d.recipientThreadRef === recipientThreadRef && supportsRecipientThread(d.destination))
+        .filter((d) => d.recipientThreadRef === recipientThreadRef && d.destination.type === "principal")
         .sort((a, b) => a.createdAt - b.createdAt)
         .slice(-limit);
     },
