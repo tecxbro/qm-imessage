@@ -3,6 +3,7 @@ import test from "node:test";
 
 import type { ProviderLine } from "../src/provider/capabilities.ts";
 import { createConnectionManager } from "../src/provider/connection.ts";
+import type { PhotonLineOwnerClaim, PhotonLineOwnerKey } from "../src/ports.ts";
 import {
   createPhotonLineCredentialResolver,
   createSpectrumCloudLineCredentialAcquirer,
@@ -44,6 +45,46 @@ function credential(overrides: Partial<ScopedLineCredential> = {}): ScopedLineCr
 }
 
 const trustedAddress = ({ address }: { address: string }) => address === "line-a.imsg.photon.codes:443";
+
+interface ProviderLineOwnership {
+  acquire(
+    key: PhotonLineOwnerKey,
+    onLoss: () => void | Promise<void>,
+  ): Promise<
+    | {
+        readonly claim: PhotonLineOwnerClaim;
+        assertActive(): void;
+        release(): Promise<boolean>;
+      }
+    | undefined
+  >;
+}
+
+function deterministicLineOwnership(): ProviderLineOwnership {
+  let fence = 0;
+  return {
+    async acquire(key) {
+      let active = true;
+      const claim: PhotonLineOwnerClaim = {
+        key,
+        ownerId: "credential-replacement-test",
+        fence: ++fence,
+        leaseExpiresAt: "2026-09-14T12:15:00.000Z",
+      };
+      return {
+        claim,
+        assertActive() {
+          if (!active) throw new Error("PROVIDER_LINE_OWNERSHIP_LOST");
+        },
+        async release() {
+          if (!active) return false;
+          active = false;
+          return true;
+        },
+      };
+    },
+  };
+}
 
 function projectSecrets(projectSecret = "project-secret"): HostPrivateProjectSecretSource {
   return async ({ installationId, projectId }) => ({
@@ -647,26 +688,34 @@ test("credential replacement stops prior intake before constructing the refreshe
     },
     now: () => now,
   });
-  const manager = createConnectionManager({
-    advanced: () => {
-      throw new Error("unexpected Advanced construction");
-    },
-    spectrum: async ({ token: connectionToken }) => {
-      events.push(`construct:${connectionToken}`);
-      return {
-        messages: {
-          [Symbol.asyncIterator]() {
-            return {
-              next: async () => ({ done: true as const, value: undefined }),
-            };
+  const manager = (
+    createConnectionManager as (
+      constructors: Parameters<typeof createConnectionManager>[0],
+      ownership: ProviderLineOwnership,
+    ) => ReturnType<typeof createConnectionManager>
+  )(
+    {
+      advanced: () => {
+        throw new Error("unexpected Advanced construction");
+      },
+      spectrum: async ({ token: connectionToken }) => {
+        events.push(`construct:${connectionToken}`);
+        return {
+          messages: {
+            [Symbol.asyncIterator]() {
+              return {
+                next: async () => ({ done: true as const, value: undefined }),
+              };
+            },
           },
-        },
-        stop: async () => {
-          events.push(`stop:${connectionToken}`);
-        },
-      };
+          stop: async () => {
+            events.push(`stop:${connectionToken}`);
+          },
+        };
+      },
     },
-  });
+    deterministicLineOwnership(),
+  );
 
   const firstResolution = await resolver.resolve();
   assert.equal(firstResolution.kind, "ready");
