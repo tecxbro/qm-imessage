@@ -27,6 +27,10 @@ import {
   type Config,
 } from "./config.ts";
 import type { ServerDeps } from "./api/deps.ts";
+import type { PhotonCoreClient } from "./api/photon-core-client.ts";
+import { createPhotonCoreComposition, type PhotonCoreCompositionInputs } from "./api/photon-composition.ts";
+import { registerPhotonStateMigrations } from "../plugins/photon/src/state.ts";
+import type { PhotonDestinationResolver } from "./surfaces/photon-destinations.ts";
 import {
   actorAssertionActive,
   createIdentityService,
@@ -476,6 +480,7 @@ export interface BuiltApp {
   sessionShareBytes: DurableByteStore;
   skillSyncEngine: SkillSyncEngine;
   slackCore: SlackCoreClient;
+  photonCore?: PhotonCoreClient;
 }
 
 const MEMORY_CAPTURE_ENTRY_WINDOW = 2_000;
@@ -487,6 +492,8 @@ export function buildApp(
     credentialBrokers?: Record<string, AwsRoleBroker>;
     modelCredentialFetch?: typeof fetch;
     modelVerificationProbe?: typeof probeModel;
+    photon?: PhotonCoreCompositionInputs;
+    photonDestinations?: PhotonDestinationResolver;
   } = {},
 ): BuiltApp {
   if (config.databaseUrl && !config.connectorSecretKey) {
@@ -517,6 +524,7 @@ export function buildApp(
       membership.managesArtifactHome!(scopeId, authoredBy ?? "", principalId),
   });
   const pgArtifactMap = config.databaseUrl ? createPostgresMapFactory(config.databaseUrl) : null;
+  if (pgArtifactMap) registerPhotonStateMigrations(pgArtifactMap.pool);
   const artifactMap = <T>(table: string): DurableMap<T> =>
     pgArtifactMap ? pgArtifactMap.map<T>(table) : createMemoryMap<T>();
   setProviderBaseUrls(config.providerBaseUrls);
@@ -1687,6 +1695,7 @@ export function buildApp(
     crons,
     webhooks,
     deliveries,
+    ...(overrides.photonDestinations ? { photonDestinations: overrides.photonDestinations } : {}),
     directory,
     ...(config.emailAuthPrincipals?.length
       ? {
@@ -1725,6 +1734,14 @@ export function buildApp(
     modelProviders: modelProviderAvailabilityFor(config.harness, providerKeys),
     runWaitMs: config.runWaitMs,
   });
+  const photonCore = overrides.photon
+    ? createPhotonCoreComposition({
+        ...overrides.photon,
+        app,
+        runs,
+        deliveries,
+      }).core
+    : undefined;
   const inboxRealtime = createInboxRealtime({
     loops: loopStore,
     items: loopItems,
@@ -2148,6 +2165,7 @@ export function buildApp(
         : createLocalDurableByteStore(join(config.dataDir, "session-shares")),
     skillSyncEngine,
     slackCore,
+    ...(photonCore ? { photonCore } : {}),
   };
 }
 
@@ -2229,6 +2247,7 @@ export function serverDeps(
     ...(built.keychain ? { keychain: built.keychain } : {}),
     serviceCreds: built.serviceCreds,
     deliveries: built.deliveries,
+    ...(built.photonCore ? { photonCore: built.photonCore } : {}),
     ...(built.fireAskResolution ? { fireAskResolution: built.fireAskResolution } : {}),
     runs: built.runs,
     signals: built.signals,
