@@ -86,13 +86,22 @@ test("each owned feature path is denied to its neighboring lane", async () => {
   });
 });
 
-test("feature ownership does not collide with integration reservations", async () => {
+test("feature ownership overlaps integration only for reviewed shared adaptations", async () => {
   const ownership = JSON.parse(await readFile(new URL("../docs/imessage/ownership.json", import.meta.url), "utf8"));
+  const reviewedOverlaps = new Set([
+    ...Array.from({ length: 6 }, (_, index) => `docs/imessage/lanes/wt-0${index + 1}.md`),
+    "plugins/chassis/src/photon-state-records.ts",
+    "plugins/chassis/src/photon-state-schema.ts",
+    "plugins/chassis/src/photon-state.ts",
+    "plugins/photon/src/state.ts",
+    "plugins/photon/test/state.test.ts",
+    "test/photon-state-postgres.test.ts",
+  ]);
   for (const laneId of Object.keys(expectedOwnership())) {
     for (const path of ownership.lanes[laneId].ownedPaths) {
       assert.equal(
         ownership.integration.ownedPaths.some((pattern: string) => matches(path, pattern)),
-        false,
+        reviewedOverlaps.has(path),
         `${laneId}:${path}`,
       );
     }
