@@ -3,7 +3,7 @@ import { after, before, test } from "node:test";
 import pg from "pg";
 
 import { createPhotonBindingStores, type PhotonBindingStores } from "../plugins/chassis/src/photon-state/bindings.ts";
-import { PHOTON_STATE_MIGRATION, PHOTON_STATE_SCHEMA } from "../plugins/chassis/src/photon-state-schema.ts";
+import { PHOTON_STATE_MIGRATIONS } from "../plugins/chassis/src/photon-state-schema.ts";
 import type { ConversationReference, MessageReference } from "../plugins/chassis/src/photon-contract.ts";
 import type { ChatSessionBinding, MessageBinding } from "../plugins/photon/src/ports.ts";
 import { createPhotonStateDatabase, type PhotonStatePool } from "../plugins/photon/src/state.ts";
@@ -55,12 +55,10 @@ before(async () => {
   harness = await createCp1PostgresHarness(databaseUrl);
   admin = harness.pool;
   await harness.withClusterLock(() =>
-    applyPgMigrations(admin!, [definePgMigration(PHOTON_STATE_MIGRATION.id, PHOTON_STATE_MIGRATION.statements)]),
-  );
-  await admin.query(
-    `ALTER TABLE ${PHOTON_STATE_SCHEMA}.chat_session_bindings
-       ADD COLUMN binding_version BIGINT NOT NULL DEFAULT 1
-       CHECK (binding_version >= 1 AND binding_version <= 9007199254740991)`,
+    applyPgMigrations(
+      admin!,
+      PHOTON_STATE_MIGRATIONS.map((migration) => definePgMigration(migration.id, migration.statements)),
+    ),
   );
   stores = createPhotonBindingStores(database(admin));
 });
@@ -125,6 +123,7 @@ test("selection compare-and-set does not create or cross line and project author
   const target = conversation("authority");
   const a = session(target, "authority-a");
   const b = session(target, "authority-b");
+  const refreshedDisplay = session({ ...target, maskedAddress: "+1•••0099" }, "authority-display-refresh");
   const missing = conversation("missing");
   const foreignLine = { ...target, lineId: "line-foreign" };
   const foreignProject = { ...target, projectId: "project-foreign" };
@@ -143,4 +142,9 @@ test("selection compare-and-set does not create or cross line and project author
   assert.equal(await stores.chatSessions.compareAndSetSelection(target, 0, b), undefined);
   assert.equal(await stores.chatSessions.compareAndSetSelection(target, Number.MAX_SAFE_INTEGER, b), undefined);
   assert.deepEqual(await stores.chatSessions.readSelection(target), { binding: a, version: 1 });
+  assert.deepEqual(await stores.chatSessions.compareAndSetSelection(target, 1, refreshedDisplay), {
+    binding: refreshedDisplay,
+    version: 2,
+  });
+  assert.deepEqual(await stores.chatSessions.readSelection(target), { binding: refreshedDisplay, version: 2 });
 });

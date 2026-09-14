@@ -1,8 +1,4 @@
-import type {
-  ChatSessionBinding,
-  ChatSessionBindingStorePort,
-  MessageBindingStorePort,
-} from "../../../photon/src/ports.ts";
+import type { ChatSessionSelectionStorePort, MessageBindingStorePort } from "../../../photon/src/ports.ts";
 import type { ConversationReference } from "../photon-contract.ts";
 import { PHOTON_STATE_SCHEMA } from "../photon-state-schema.ts";
 
@@ -21,20 +17,9 @@ import {
 } from "./shared.ts";
 
 export interface PhotonBindingStores {
-  chatSessions: ChatSessionBindingStorePort & {
-    readSelection(
-      conversation: ConversationReference,
-    ): Promise<{ binding: ChatSessionBinding; version: number } | undefined>;
-    compareAndSetSelection(
-      conversation: ConversationReference,
-      expectedVersion: number,
-      next: ChatSessionBinding,
-    ): Promise<{ binding: ChatSessionBinding; version: number } | undefined>;
-  };
+  chatSessions: ChatSessionSelectionStorePort;
   messages: MessageBindingStorePort;
 }
-
-type ChatSessionSelectionStore = PhotonBindingStores["chatSessions"];
 
 type SelectionRow = RecordRow & { binding_version: number | string };
 
@@ -62,7 +47,7 @@ function selected(row: SelectionRow | undefined, conversation: ConversationRefer
 }
 
 export function createPhotonBindingStores(database: PhotonStateDatabase): PhotonBindingStores {
-  const chatSessions: ChatSessionSelectionStore = {
+  const chatSessions: ChatSessionSelectionStorePort = {
     async bind(binding) {
       const serialized = encoded("chat-session-binding", binding);
       return database.transaction(async (transaction) => {
@@ -107,7 +92,7 @@ export function createPhotonBindingStores(database: PhotonStateDatabase): Photon
         !Number.isSafeInteger(expectedVersion) ||
         expectedVersion < 1 ||
         expectedVersion >= Number.MAX_SAFE_INTEGER ||
-        !sameJson(conversation, next.conversation)
+        !sameConversationAuthority(conversation, next.conversation)
       )
         return undefined;
       const serialized = encoded("chat-session-binding", next);
